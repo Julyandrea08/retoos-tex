@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Control de Confección</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons (Web component for clean vector icons) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Incluir estilos CSS -->
+    <?!= include('Stylesheet'); ?>
+  </head>
+  <body>
+    
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="header-container">
+        <div class="logo-area">
+          <div class="logo-icon"><i data-lucide="scissors"></i></div>
+          <div>
+            <h1>MAINTEGRAL</h1>
+            <p>Control de Confección</p>
+          </div>
+        </div>
+        <button id="btn-sync" class="btn-icon-only" onclick="cargarDatosIniciales()" title="Sincronizar Datos">
+          <i data-lucide="rotate-cw"></i>
+        </button>
+      </div>
+    </header>
+    <!-- NOTIFICACIÓN FLOTANTE -->
+    <div id="toast" class="toast hidden"></div>
+    <!-- PANTALLA DE CARGA -->
+    <div id="loading-overlay" class="loading-overlay">
+      <div class="loader"></div>
+      <p>Cargando información...</p>
+    </div>
+    <!-- CONTENEDOR PRINCIPAL DE PANTALLAS -->
+    <main class="app-main">
+      
+      <!-- PANTALLA 1: FORMULARIO DE REGISTRO -->
+      <section id="view-registro" class="app-view active">
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="plus-circle" class="title-icon"></i>Registrar Avance</h2>
+          
+          <form id="form-registro" onsubmit="enviarFormulario(event)">
+            
+            <!-- Fila: Hora de Turno -->
+            <div class="form-group">
+              <label for="reg-hora"><i data-lucide="clock"></i> Hora del Turno</label>
+              <select id="reg-hora" name="horaTurno" required>
+                <option value="1">H1 — 6:00 a 7:00 am</option>
+                <option value="2">H2 — 7:00 a 8:00 am</option>
+                <option value="3">H3 — 8:00 a 9:00 am</option>
+                <option value="4">H4 — 9:20 a 10:20 am</option>
+                <option value="5">H5 — 10:20 a 11:20 am</option>
+                <option value="6">H6 — 11:20 am a 12:20 pm</option>
+                <option value="7">H7 — 12:20 a 1:20 pm</option>
+                <option value="8">H8 — 1:20 a 2:20 pm</option>
+                <option value="9">H9 — 2:20 a 3:20 pm</option>
+                <option value="10">H10 — 3:20 a 4:20 pm</option>
+                <option value="11">H11 — 4:20 a 5:20 pm</option>
+              </select>
+            </div>
+            <!-- Fila: Orden de Producción -->
+            <div class="form-group">
+              <label for="reg-orden"><i data-lucide="hash"></i> Orden de Producción</label>
+              <select id="reg-orden" name="idOrden" onchange="actualizarOperacionesPorOrden()" required>
+                <option value="" disabled selected>Seleccione una orden...</option>
+                <!-- Se llena dinámicamente -->
+              </select>
+            </div>
+            <!-- Operaria -->
+            <div class="form-group">
+              <label><i data-lucide="user"></i> Operaria</label>
+              <div class="searchable-select" id="ss-operaria">
+                <input type="text" id="ss-operaria-input" class="ss-input" placeholder="Buscar operaria..." autocomplete="off">
+                <input type="hidden" id="reg-operaria" name="idOperaria">
+                <div class="ss-dropdown" id="ss-operaria-list"></div>
+              </div>
+            </div>
+            <!-- Operación -->
+            <div class="form-group">
+              <label><i data-lucide="settings"></i> Operación</label>
+              <!-- Buscador mágico de operaciones -->
+              <div class="searchable-select" id="ss-operacion">
+                <input type="text" id="ss-operacion-input" class="ss-input" placeholder="Buscar operación..." autocomplete="off">
+                <input type="hidden" id="reg-operacion" name="idOperacion">
+                <div class="ss-dropdown" id="ss-operacion-list"></div>
+              </div>
+            </div>
+            <!-- Fila: Cantidad Producida -->
+            <div class="form-group">
+              <label for="reg-cantidad"><i data-lucide="layers"></i> Cantidad de Unidades</label>
+              <input type="number" id="reg-cantidad" name="cantidad" min="1" max="500" value="10" required>
+            </div>
+            <!-- Fila: Observaciones -->
+            <div class="form-group">
+              <label for="reg-observaciones"><i data-lucide="message-square"></i> Observaciones</label>
+              <textarea id="reg-observaciones" name="observaciones" placeholder="Observaciones o notas adicionales..." style="width: 100%; min-height: 80px; padding: 12px 16px; background-color: var(--bg-app); border: 1px solid var(--border-color); border-radius: 12px; font-size: 0.95rem; color: var(--text-main); transition: all 0.25s ease; outline: none; resize: vertical;"></textarea>
+            </div>
+            <!-- Botón de Envío -->
+            <button type="submit" class="btn btn-primary btn-block">
+              <i data-lucide="check-circle-2"></i> Registrar Avance
+            </button>
+          </form>
+        </div>
+      </section>
+      <!-- PANTALLA 2: TABLERO DE CONTROL (DASHBOARD) -->
+      <section id="view-dashboard" class="app-view">
+
+        <!-- Filtros del Dashboard -->
+        <div class="card dashboard-filters">
+          <h2 class="card-title"><i data-lucide="filter" class="title-icon"></i>Filtros del Tablero</h2>
+          <div class="filters-grid">
+            <div class="form-group" style="margin-bottom:0">
+              <label for="dash-filter-date"><i data-lucide="calendar"></i> Fecha</label>
+              <input type="date" id="dash-filter-date">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label for="dash-filter-orden"><i data-lucide="hash"></i> Orden</label>
+              <select id="dash-filter-orden">
+                <option value="">Todas las órdenes</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:12px" onclick="actualizarDashboard()">
+            <i data-lucide="search"></i> Aplicar Filtros
+          </button>
+        </div>
+
+        <!-- Tarjeta de Avance de Órdenes -->
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="trending-up" class="title-icon"></i>Progreso de Órdenes</h2>
+          <div id="dashboard-orders-container">
+            <!-- Se llena dinámicamente -->
+            <p class="empty-message">No hay órdenes activas registradas.</p>
+          </div>
+        </div>
+        <!-- Tarjeta de Avance Hora a Hora -->
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="bar-chart-3" class="title-icon"></i>Prendas Terminadas por Hora</h2>
+          <p class="card-subtitle">Producción acumulada neta del módulo finalizado</p>
+          <div class="hourly-chart-container">
+            <div id="hourly-bars" class="hourly-bars">
+              <!-- Se llena dinámicamente con barras personalizadas CSS -->
+            </div>
+          </div>
+        </div>
+        <!-- Tarjeta de Eficiencia de Operarias -->
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="users" class="title-icon"></i>Eficiencia de Operarias</h2>
+          <p class="card-subtitle">Calculada dinámicamente en base al SAM acumulado</p>
+          <div class="table-responsive">
+            <table class="efficiency-table">
+              <thead>
+                <tr>
+                  <th>Operaria</th>
+                  <th>H1</th>
+                  <th>H2</th>
+                  <th>H3</th>
+                  <th>H4</th>
+                  <th>H5</th>
+                  <th>H6</th>
+                  <th>H7</th>
+                  <th>H8</th>
+                  <th>H9</th>
+                  <th>H10</th>
+                  <th>H11</th>
+                </tr>
+              </thead>
+              <tbody id="efficiency-tbody">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Detalle de Operaciones por Operaria -->
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="clipboard-list" class="title-icon"></i>Detalle de Operaciones Realizadas</h2>
+          <p class="card-subtitle">Listado de actividades detalladas registradas para el día y orden seleccionados</p>
+          
+          <!-- Filtro de Operaria para Detalles -->
+          <div class="form-group" style="max-width: 300px; margin-bottom: 16px;">
+            <label for="detail-filter-operaria"><i data-lucide="user"></i> Filtrar por Operaria</label>
+            <select id="detail-filter-operaria" onchange="filtrarDetalleOperaciones()">
+              <option value="">Todas las operarias</option>
+            </select>
+          </div>
+
+          <div class="table-responsive">
+            <table class="efficiency-table" style="min-width: 100%;">
+              <thead>
+                <tr>
+                  <th style="text-align: left !important; position: static; box-shadow: none; padding-left: 10px;">Operaria</th>
+                  <th>Hora</th>
+                  <th>Operación</th>
+                  <th>Cantidad</th>
+                </tr>
+              </thead>
+              <tbody id="detalles-operaciones-tbody">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      <!-- PANTALLA 3: CONFIGURACIÓN / INFO -->
+      <section id="view-config" class="app-view">
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="info" class="title-icon"></i>Acerca de TexFlow</h2>
+          <p class="about-text">
+            Esta aplicación móvil está diseñada para facilitar la toma de datos de costura a pie de línea de producción.
+          </p>
+          
+          <div class="info-list">
+            <div class="info-item">
+              <i data-lucide="database"></i>
+              <div>
+                <h4>Base de Datos</h4>
+                <p>Google Sheets Activo</p>
+              </div>
+            </div>
+            <div class="info-item">
+              <i data-lucide="timer"></i>
+              <div>
+                <h4>Jornada Configurada</h4>
+                <p>8 Horas por turno (Hora 4 adaptada a 30m por Almuerzo)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="sliders" class="title-icon"></i>Configuración de Datos</h2>
+          <p class="card-subtitle">Para cambiar operarias, órdenes o SAMs de prendas, hazlo directamente en tu hoja de cálculo asociada. Presiona el botón de abajo para forzar la sincronización.</p>
+          <button class="btn btn-secondary btn-block" onclick="cargarDatosIniciales()">
+            <i data-lucide="refresh-cw"></i> Sincronizar Catálogos Ahora
+          </button>
+        </div>
+      </section>
+    </main>
+    <!-- NAVEGACIÓN INFERIOR DE PANTALLAS -->
+    <nav class="app-navbar">
+      <button id="nav-registro" class="nav-item active" onclick="switchView('registro')">
+        <i data-lucide="plus-circle"></i>
+        <span>Registrar</span>
+      </button>
+      <button id="nav-dashboard" class="nav-item" onclick="switchView('dashboard')">
+        <i data-lucide="trending-up"></i>
+        <span>Tablero</span>
+      </button>
+      <button id="nav-config" class="nav-item" onclick="switchView('config')">
+        <i data-lucide="sliders"></i>
+        <span>Más</span>
+      </button>
+    </nav>
+    <!-- Incluir scripts JavaScript del Cliente -->
+    <?!= include('JavaScript'); ?>
+    
+    <script>
+      // Inicializar iconos de Lucide al cargar la página
+      document.addEventListener("DOMContentLoaded", function() {
+        lucide.createIcons();
+      });
+    </script>
+  </body>
+</html>

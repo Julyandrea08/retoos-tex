@@ -1,0 +1,562 @@
+<script>
+  /**
+   * Lógica interactiva en el cliente JavaScript
+   * Archivo: JavaScript.html - v3
+   */
+
+  // ============================================================
+  // ESTADO DE LA APLICACIÓN
+  // ============================================================
+  let appData = {
+    ordenes: [],
+    operarias: [],
+    operaciones: []
+  };
+
+  // ============================================================
+  // BLOQUES HORARIOS — 11 turnos (minutos desde medianoche)
+  // Almuerzo: 9:00 - 9:30 AM (gap entre H3 y H4)
+  // ============================================================
+  const BLOQUES_HORARIOS = [
+    { valor: 1,  inicio: 360,  fin: 420,  label: 'H1 — 6:00 a 7:00 am'      },
+    { valor: 2,  inicio: 420,  fin: 480,  label: 'H2 — 7:00 a 8:00 am'      },
+    { valor: 3,  inicio: 480,  fin: 540,  label: 'H3 — 8:00 a 9:00 am'      },
+    // Almuerzo: 540-570 (9:00 - 9:30 AM) — sin bloque registrable
+    { valor: 4,  inicio: 570,  fin: 630,  label: 'H4 — 9:30 a 10:30 am'     },
+    { valor: 5,  inicio: 630,  fin: 690,  label: 'H5 — 10:30 a 11:30 am'    },
+    { valor: 6,  inicio: 690,  fin: 750,  label: 'H6 — 11:30 am a 12:30 pm' },
+    { valor: 7,  inicio: 750,  fin: 810,  label: 'H7 — 12:30 a 1:30 pm'     },
+    { valor: 8,  inicio: 810,  fin: 870,  label: 'H8 — 1:30 a 2:30 pm'      },
+    { valor: 9,  inicio: 870,  fin: 930,  label: 'H9 — 2:30 a 3:30 pm'      },
+    { valor: 10, inicio: 930,  fin: 990,  label: 'H10 — 3:30 a 4:30 pm'     },
+    { valor: 11, inicio: 990,  fin: 1050, label: 'H11 — 4:30 a 5:30 pm'     },
+  ];
+
+  // ============================================================
+  // MANEJO DE ERRORES GLOBALES
+  // ============================================================
+  window.onerror = function(message, source, lineno, colno, error) {
+    showLoader(false);
+    showToast('Error en la aplicación: ' + message + ' (Línea ' + lineno + ')', 'error');
+    console.error('Error global:', error || message);
+    return false;
+  };
+
+  window.onunhandledrejection = function(event) {
+    showLoader(false);
+    showToast('Error de promesa no manejada: ' + event.reason, 'error');
+    console.error('Rechazo no manejado:', event.reason);
+  };
+
+  // Al cargar la ventana, arrancar la app
+  window.addEventListener('load', function() {
+    autoDetectHoraTurno();
+    inicializarFiltroFecha();
+    cargarDatosIniciales();
+    switchView('registro');
+  });
+
+  // ============================================================
+  // NAVEGACIÓN DE PANTALLAS
+  // ============================================================
+  function switchView(viewId) {
+    document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const targetView = document.getElementById('view-' + viewId);
+    const targetNav  = document.getElementById('nav-' + viewId);
+    if (targetView) targetView.classList.add('active');
+    if (targetNav)  targetNav.classList.add('active');
+    if (viewId === 'dashboard') actualizarDashboard();
+    lucide.createIcons();
+  }
+
+  // ============================================================
+  // AUTO-DETECCIÓN DE HORA DEL TURNO
+  // ============================================================
+  function autoDetectHoraTurno() {
+    const ahora = new Date();
+    const minutosDesdeMedia = ahora.getHours() * 60 + ahora.getMinutes();
+    let bloqueDetectado = 1;
+    for (const bloque of BLOQUES_HORARIOS) {
+      if (minutosDesdeMedia >= bloque.inicio && minutosDesdeMedia < bloque.fin) {
+        bloqueDetectado = bloque.valor;
+        break;
+      }
+    }
+    const selectHora = document.getElementById('reg-hora');
+    if (selectHora) selectHora.value = bloqueDetectado;
+  }
+
+  // ============================================================
+  // CARGA INICIAL DE DATOS DESDE EL BACKEND
+  // ============================================================
+  function cargarDatosIniciales() {
+    showLoader(true);
+    
+    // Verificar si se está ejecutando en el entorno de Google Apps Script
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      showLoader(false);
+      showToast('Error: Esta aplicación debe ejecutarse dentro de Google Apps Script o como Web App desplegada.', 'error');
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(response) {
+        try {
+          if (!response) {
+            throw new Error("El backend no retornó información.");
+          }
+          if (response.success === false) {
+            throw new Error(response.error || "Error desconocido en el servidor.");
+          }
+          appData = response;
+          // Poblar dropdown de Órdenes
+          const selectOrden = document.getElementById('reg-orden');
+          if (selectOrden) {
+            selectOrden.innerHTML = '<option value="" disabled selected>Seleccione una orden...</option>';
+            if (appData.ordenes && Array.isArray(appData.ordenes)) {
+              appData.ordenes.forEach(function(ord) {
+                const opt = document.createElement('option');
+                opt.value = ord.id;
+                opt.textContent = ord.id + ' - Ref: ' + ord.referencia;
+                selectOrden.appendChild(opt);
+              });
+            }
+          }
+          // Inicializar buscadores mágicos
+          if (appData.operarias && Array.isArray(appData.operarias)) {
+            initSearchableSelect('ss-operaria', 'ss-operaria-input', 'ss-operaria-list', 'reg-operaria',
+              appData.operarias.map(op => ({ value: op.id, label: op.nombre })),
+              'Buscar operaria...'
+            );
+          }
+          if (appData.operaciones && Array.isArray(appData.operaciones)) {
+            initSearchableSelect('ss-operacion', 'ss-operacion-input', 'ss-operacion-list', 'reg-operacion',
+              appData.operaciones.map(op => ({ value: op.id, label: op.nombre + ' (SAM: ' + op.sam + ')' })),
+              'Buscar operación...'
+            );
+          }
+          showLoader(false);
+          showToast('Datos sincronizados correctamente.', 'success');
+        } catch (err) {
+          showLoader(false);
+          showToast('Error al inicializar datos: ' + err.message, 'error');
+          console.error(err);
+        }
+      })
+      .withFailureHandler(function(error) {
+        showLoader(false);
+        showToast('Error al conectar con Google Sheets: ' + error, 'error');
+      })
+      .getInitialData();
+  }
+
+  // ============================================================
+  // BUSCADOR MÁGICO — SEARCHABLE SELECT
+  // ============================================================
+  function initSearchableSelect(wrapperId, inputId, listId, hiddenId, items, placeholder) {
+    const wrapper   = document.getElementById(wrapperId);
+    const input     = document.getElementById(inputId);
+    const list      = document.getElementById(listId);
+    const hidden    = document.getElementById(hiddenId);
+
+    if (!wrapper || !input || !list || !hidden) return;
+
+    wrapper._items = items;
+    input.placeholder = placeholder || 'Buscar...';
+
+    // Renderizar dropdown al inicio
+    renderDropdownItems(list, hidden, input, items, '');
+
+    // Al ganar foco, abrir mostrando toda la lista
+    input.addEventListener('focus', function(e) {
+      closeAllDropdowns(listId);
+      wrapper.classList.add('open');
+      list.classList.add('open');
+      input.classList.add('open');
+      renderDropdownItems(list, hidden, input, items, '');
+    });
+
+    // Al escribir, filtrar dinámicamente
+    input.addEventListener('input', function() {
+      if (!list.classList.contains('open')) {
+        wrapper.classList.add('open');
+        list.classList.add('open');
+        input.classList.add('open');
+      }
+      renderDropdownItems(list, hidden, input, items, input.value);
+    });
+
+    // Al perder foco, cerrar con retraso para permitir registrar el clic en la opción
+    input.addEventListener('blur', function() {
+      setTimeout(function() {
+        closeDropdown(wrapper, list, input, hidden, items);
+      }, 250);
+    });
+  }
+
+  function closeDropdown(wrapper, list, input, hidden, items) {
+    wrapper.classList.remove('open');
+    list.classList.remove('open');
+    input.classList.remove('open');
+    
+    if (hidden.value) {
+      const match = items.find(item => String(item.value) === String(hidden.value));
+      if (match) input.value = match.label;
+    } else {
+      input.value = '';
+    }
+  }
+
+  function renderDropdownItems(list, hidden, input, items, query) {
+    const q = query.trim().toLowerCase();
+    
+    const filtered = q
+      ? items.filter(item => item.label.toLowerCase().indexOf(q) !== -1)
+      : items;
+
+    let html = '';
+    if (filtered.length === 0) {
+      html = '<div class="ss-empty">No se encontraron resultados</div>';
+    } else {
+      filtered.forEach(function(item) {
+        const isActive = hidden.value === String(item.value) ? ' active' : '';
+        html += '<div class="ss-option' + isActive + '" data-value="' + escapeHtml(String(item.value)) + '" data-label="' + escapeHtml(item.label) + '">' + escapeHtml(item.label) + '</div>';
+      });
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.ss-option').forEach(function(opt) {
+      opt.addEventListener('click', function(e) {
+        e.stopPropagation();
+        
+        hidden.value = this.dataset.value;
+        input.value  = this.dataset.label;
+        
+        const wrapper = list.closest('.searchable-select');
+        if (wrapper) {
+          wrapper.classList.remove('open');
+          list.classList.remove('open');
+          input.classList.remove('open');
+        }
+        
+        list.querySelectorAll('.ss-option').forEach(o => o.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+  }
+
+  function closeAllDropdowns(exceptId) {
+    document.querySelectorAll('.ss-dropdown.open').forEach(function(d) {
+      if (d.id !== exceptId) {
+        d.classList.remove('open');
+        const wrapper = d.closest('.searchable-select');
+        if (wrapper) {
+          wrapper.classList.remove('open');
+          const inp = wrapper.querySelector('.ss-input');
+          if (inp) inp.classList.remove('open');
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // UTILIDADES Y ENVÍO
+  // ============================================================
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function clearSearchableSelect(wrapperId, inputId, hiddenId) {
+    const input  = document.getElementById(inputId);
+    const hidden = document.getElementById(hiddenId);
+    if (input)  input.value  = '';
+    if (hidden) hidden.value = '';
+  }
+
+  function setSearchableSelectEnabled(inputId, enabled) {
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.disabled = !enabled;
+      if (!enabled) input.classList.add('disabled');
+      else input.classList.remove('disabled');
+    }
+  }
+
+  function toggleTipoRegistro() {}
+  function actualizarOperacionesPorOrden() {}
+  function cambiarCantidad(delta) {}
+
+  function enviarFormulario(event) {
+    event.preventDefault();
+    const form = document.getElementById('form-registro');
+    if (!form) return;
+
+    const formData = {
+      horaTurno:     document.getElementById('reg-hora').value,
+      idOrden:       document.getElementById('reg-orden').value,
+      cantidad:      document.getElementById('reg-cantidad').value,
+      idOperacion:   document.getElementById('reg-operacion').value,
+      idOperaria:    document.getElementById('reg-operaria').value,
+      observaciones: document.getElementById('reg-observaciones').value
+    };
+
+    if (!formData.idOperaria || !formData.idOperacion) {
+      showToast('Por favor completa todos los campos de operaria y operación.', 'error');
+      return;
+    }
+
+    if (!formData.idOrden) {
+      showToast('Debe seleccionar una Orden de producción.', 'error');
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Registrando...';
+    }
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      showLoader(false);
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i data-lucide="check-circle-2"></i> Registrar Avance';
+        lucide.createIcons();
+      }
+      showToast('Error: No se puede registrar en este entorno fuera de Google Sheets.', 'error');
+      return;
+    }
+
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(function(response) {
+        showLoader(false);
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i data-lucide="check-circle-2"></i> Registrar Avance';
+          lucide.createIcons();
+        }
+        if (response.success) {
+          showToast('✓ Avance registrado — ID: ' + response.id, 'success');
+          document.getElementById('reg-cantidad').value = 10;
+          document.getElementById('reg-observaciones').value = '';
+        } else {
+          showToast('Error: ' + response.error, 'error');
+        }
+      })
+      .withFailureHandler(function(error) {
+        showLoader(false);
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i data-lucide="check-circle-2"></i> Registrar Avance';
+          lucide.createIcons();
+        }
+        showToast('Error de red: ' + error, 'error');
+      })
+      .guardarRegistro(formData);
+  }
+
+  // ============================================================
+  // FILTROS Y TABLERO
+  // ============================================================
+  function inicializarFiltroFecha() {
+    const hoy = new Date();
+    const yyyy = hoy.getFullYear();
+    const mm   = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dd   = String(hoy.getDate()).padStart(2, '0');
+    const fechaHoy = yyyy + '-' + mm + '-' + dd;
+    const inputFecha = document.getElementById('dash-filter-date');
+    if (inputFecha) inputFecha.value = fechaHoy;
+  }
+
+  function actualizarDashboard() {
+    const inputFecha = document.getElementById('dash-filter-date');
+    const selectOrden = document.getElementById('dash-filter-orden');
+    const filtroFecha = inputFecha ? inputFecha.value : '';
+    const filtroOrden = selectOrden ? selectOrden.value : '';
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      showToast('Error: No se puede conectar con Google Sheets en este entorno.', 'error');
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.listaOrdenesActivas && data.listaOrdenesActivas.length > 0) {
+          poblarFiltroOrdenes(data.listaOrdenesActivas, filtroOrden);
+        }
+
+        // 1. Progreso de Órdenes
+        const containerOrdenes = document.getElementById('dashboard-orders-container');
+        containerOrdenes.innerHTML = '';
+        if (data.ordenes.length === 0) {
+          containerOrdenes.innerHTML = '<p class="empty-message">No hay datos para los filtros seleccionados.</p>';
+        } else {
+          data.ordenes.forEach(function(ord) {
+            const pct = ord.meta > 0 ? Math.round((ord.prendasTerminadas / ord.meta) * 100) : 0;
+            const pctCapped = Math.min(pct, 100);
+            containerOrdenes.insertAdjacentHTML('beforeend', `
+              <div class="order-progress-card">
+                <div class="order-meta-info">
+                  <h4>${escapeHtml(String(ord.id))}</h4>
+                  <span class="order-ref">${escapeHtml(String(ord.referencia))}</span>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill" style="width: ${pctCapped}%"></div>
+                </div>
+                <div class="order-stats">
+                  <span>Progreso: ${pct}%</span>
+                  <span><span class="stat-completed">${ord.prendasTerminadas}</span> / ${ord.meta} uds</span>
+                </div>
+              </div>
+            `);
+          });
+        }
+
+        // 2. Gráfico de Barras Hora a Hora
+        const containerBarras = document.getElementById('hourly-bars');
+        containerBarras.innerHTML = '';
+        const maxCant = Math.max(...data.produccionPorHora.map(h => h.cantidad), 10);
+        data.produccionPorHora.forEach(function(item, idx) {
+          const pctHeight = (item.cantidad / maxCant) * 100;
+          containerBarras.insertAdjacentHTML('beforeend', `
+            <div class="bar-wrapper">
+              <div class="bar" style="height: ${Math.max(pctHeight, 4)}%">
+                <span class="bar-value">${item.cantidad}</span>
+              </div>
+              <span class="bar-label">${item.hora}</span>
+            </div>
+          `);
+        });
+
+        // 3. Tabla de Eficiencias
+        const tbody = document.getElementById('efficiency-tbody');
+        tbody.innerHTML = '';
+        if (data.eficiencias.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="12" class="empty-message">No hay registros de operarias.</td></tr>';
+        } else {
+          data.eficiencias.forEach(function(op) {
+            let trHtml = `<tr><td>${escapeHtml(op.id)}</td>`;
+            for (let h = 1; h <= 11; h++) {
+              const val = op.horas[h];
+              const prendas = op.prendas[h] || 0;
+              if (val !== null && val !== undefined) {
+                let badgeClass = 'badge-medium';
+                if (val >= 85) badgeClass = 'badge-high';
+                else if (val < 60) badgeClass = 'badge-low';
+                trHtml += `<td>
+                  <span class="badge-efficiency ${badgeClass}">${val}%</span>
+                  <div class="efficiency-qty">${prendas} uds</div>
+                </td>`;
+              } else {
+                trHtml += `<td><span class="badge-efficiency badge-none">-</span></td>`;
+              }
+            }
+            trHtml += '</tr>';
+            tbody.insertAdjacentHTML('beforeend', trHtml);
+          });
+        }
+
+        // Poblar filtro de operarias en el detalle de operaciones
+        const filterSel = document.getElementById('detail-filter-operaria');
+        const selectedOperariaFilter = filterSel ? filterSel.value : '';
+        const operariasEnDetalle = {};
+        if (filterSel) {
+          filterSel.innerHTML = '<option value="">Todas las operarias</option>';
+        }
+        if (data.detallesActividad) {
+          data.detallesActividad.forEach(function(act) {
+            if (act.idOperaria && act.operaria) {
+              operariasEnDetalle[act.idOperaria] = act.operaria;
+            }
+          });
+        }
+        if (filterSel) {
+          Object.keys(operariasEnDetalle).sort().forEach(function(id) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = id + ' - ' + operariasEnDetalle[id];
+            if (id === selectedOperariaFilter) opt.selected = true;
+            filterSel.appendChild(opt);
+          });
+        }
+
+        // 4. Detalle de Operaciones Realizadas
+        const tbodyDetalles = document.getElementById('detalles-operaciones-tbody');
+        tbodyDetalles.innerHTML = '';
+        if (!data.detallesActividad || data.detallesActividad.length === 0) {
+          tbodyDetalles.innerHTML = '<tr><td colspan="4" class="empty-message">No hay operaciones registradas para este día o filtros.</td></tr>';
+        } else {
+          data.detallesActividad.forEach(function(act) {
+            tbodyDetalles.insertAdjacentHTML('beforeend', `
+              <tr data-id-operaria="${escapeHtml(act.idOperaria || '')}">
+                <td style="text-align: left !important; position: static; box-shadow: none; padding-left: 10px; font-weight: 500;">${escapeHtml(act.operaria)}</td>
+                <td><span class="badge-efficiency badge-none" style="min-width: 32px;">${escapeHtml(act.hora)}</span></td>
+                <td style="text-align: left !important;">${escapeHtml(act.operacion)}</td>
+                <td style="font-weight: 600; color: var(--primary);">${act.cantidad} uds</td>
+              </tr>
+            `);
+          });
+        }
+
+        filtrarDetalleOperaciones();
+        lucide.createIcons();
+      })
+      .withFailureHandler(function(error) {
+        showToast('Error al refrescar dashboard: ' + error, 'error');
+      })
+      .getDashboardData(filtroFecha, filtroOrden);
+  }
+
+  function filtrarDetalleOperaciones() {
+    const filterSel = document.getElementById('detail-filter-operaria');
+    const filterVal = filterSel ? filterSel.value : '';
+    const tbodyDetalles = document.getElementById('detalles-operaciones-tbody');
+    if (!tbodyDetalles) return;
+    
+    const rows = tbodyDetalles.querySelectorAll('tr');
+    rows.forEach(function(row) {
+      const rowIdOperaria = row.getAttribute('data-id-operaria');
+      if (!filterVal || rowIdOperaria === filterVal || !rowIdOperaria) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  }
+
+  function poblarFiltroOrdenes(listaOrdenes, valorActual) {
+    const sel = document.getElementById('dash-filter-orden');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Todas las órdenes</option>';
+    listaOrdenes.forEach(function(ord) {
+      const opt = document.createElement('option');
+      opt.value = ord.id;
+      opt.textContent = ord.id + ' - ' + ord.referencia;
+      if (String(ord.id) === String(valorActual)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function showLoader(visible) {
+    const loader = document.getElementById('loading-overlay');
+    if (visible) loader.classList.remove('hidden');
+    else         loader.classList.add('hidden');
+  }
+
+  function showToast(message, type) {
+    type = type || 'success';
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast show';
+    if (type === 'success') toast.classList.add('toast-success');
+    else if (type === 'error') toast.classList.add('toast-error');
+    setTimeout(function() { toast.classList.remove('show'); }, 3500);
+  }
+</script>
