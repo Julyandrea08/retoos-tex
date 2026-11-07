@@ -949,3 +949,81 @@ textarea:focus {
 .toast-error {
   border-left: 5px solid var(--danger);
 }
+
+/* ==============================================================================
+   ESTILOS PARA IMPORTADOR MASIVO DE EXCEL
+   ============================================================================== */
+.import-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  border: 1.5px dashed #86efac;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.import-header h4 {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-dropzone {
+  border: 2px dashed #bbf7d0;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 12px;
+}
+
+.upload-dropzone:hover {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.upload-dropzone i {
+  width: 36px;
+  height: 36px;
+  color: #16a34a;
+  margin-bottom: 6px;
+}
+
+.upload-dropzone p {
+  font-size: 0.85rem;
+  color: #15803d;
+  font-weight: 600;
+}
+
+.upload-dropzone span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.preview-box {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 12px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.preview-box h5 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
