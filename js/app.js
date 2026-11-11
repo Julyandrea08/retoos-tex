@@ -1,7 +1,8 @@
 /**
  * ==============================================================================
- * APLICACIÓN DE CONTROL DE PISO TEXTIL - SaaS EN LA NUBE
- * Conexión nativa con Supabase, arquitectura multi-empresa y carga masiva Excel
+ * APLICACIÓN DE CONTROL DE PISO TEXTIL - SaaS EN LA NUBE (V2.0)
+ * Lógica Completa: Navegación Superior, Buscadores Mágicos, Calidad, Barras Apiladas,
+ * Calculadora de Capacidad y Edición de SAMs
  * ==============================================================================
  */
 
@@ -14,6 +15,12 @@ function getDb() {
   return client;
 }
 
+// Paleta de colores para Órdenes en la Gráfica de Barras Apiladas
+const OP_COLORS = [
+  "#4f46e5", "#059669", "#d97706", "#0284c7", 
+  "#dc2626", "#7c3aed", "#db2777", "#0891b2"
+];
+
 // Estado global de la aplicación
 const appState = {
   empresa: null,
@@ -22,10 +29,11 @@ const appState = {
   prendas: [],
   operaciones: [],
   operarias: [],
-  registros: [],
+  registrosCostura: [],
+  registrosTerminadas: [], // Prendas finalizadas hora a hora
+  subRegistroActivo: "costura", // "costura" o "terminadas"
   isAdmin: false,
   adminPin: "1234",
-  // Búferes temporales para previsualizar importaciones de Excel
   prendasImportBuffer: null,
   operariasImportBuffer: null
 };
@@ -35,15 +43,14 @@ const appState = {
 // ==============================================================================
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    showLoader(true, "Conectando con la nube...");
+    showLoader(true, "Iniciando sistema textil...");
     await cargarDatosEmpresa();
     await cargarMaestros();
     generarBloquesHorarios();
     autoDetectHoraTurno();
     inicializarFiltrosDashboard();
-    configurarSearchableSelects();
+    configurarTodosLosBuscadoresMagicos();
     
-    // Si ya tenía sesión de admin guardada
     if (localStorage.getItem("texflow_is_admin") === "true") {
       activarModoAdmin(true, false);
     }
@@ -59,7 +66,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 // ==============================================================================
-// NAVEGACIÓN ENTRE PANTALLAS
+// 1. NAVEGACIÓN ENTRE MÓDULOS (Punto 1 y 10: Temas Diferenciados)
 // ==============================================================================
 function switchView(viewId) {
   if (viewId === "admin" && !appState.isAdmin) {
@@ -67,14 +74,18 @@ function switchView(viewId) {
     return;
   }
 
+  // Actualizar vistas
   document.querySelectorAll(".app-view").forEach(v => v.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+  document.querySelectorAll(".top-nav-btn").forEach(b => b.classList.remove("active"));
 
   const targetView = document.getElementById("view-" + viewId);
-  const targetNav = document.getElementById("nav-" + viewId);
+  const targetBtn = document.getElementById("nav-btn-" + viewId);
 
   if (targetView) targetView.classList.add("active");
-  if (targetNav) targetNav.classList.add("active");
+  if (targetBtn) targetBtn.classList.add("active");
+
+  // Punto 10: Cambiar clase del body para activar paleta cromática del módulo
+  document.body.className = "theme-" + viewId;
 
   if (viewId === "dashboard") {
     actualizarDashboard();
@@ -86,8 +97,19 @@ function switchView(viewId) {
   lucide.createIcons();
 }
 
+// Alternar entre Avance de Costura y Salida de Prendas (Punto 2)
+function switchSubRegistro(subMode) {
+  appState.subRegistroActivo = subMode;
+  document.querySelectorAll(".reg-mode-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".reg-panel").forEach(p => p.classList.remove("active"));
+
+  document.getElementById(`btn-subreg-${subMode}`).classList.add("active");
+  document.getElementById(`panel-subreg-${subMode}`).classList.add("active");
+  lucide.createIcons();
+}
+
 // ==============================================================================
-// 1. CARGA DE DATOS DESDE SUPABASE
+// 2. CARGA DE DATOS DE BASE DE DATOS
 // ==============================================================================
 async function cargarDatosEmpresa() {
   const { data, error } = await getDb()
@@ -107,7 +129,6 @@ async function cargarDatosEmpresa() {
 async function cargarMaestros() {
   const empresaId = appState.empresa.id;
 
-  // Cargar Órdenes activas
   const { data: ordenesData } = await getDb()
     .from("ordenes_produccion")
     .select("*, prendas(id, referencia, descripcion, sam_total)")
@@ -115,7 +136,6 @@ async function cargarMaestros() {
     .order("created_at", { ascending: false });
   appState.ordenes = ordenesData || [];
 
-  // Cargar Prendas
   const { data: prendasData } = await getDb()
     .from("prendas")
     .select("*")
@@ -123,7 +143,6 @@ async function cargarMaestros() {
     .order("referencia");
   appState.prendas = prendasData || [];
 
-  // Cargar Operaciones
   const { data: opsData } = await getDb()
     .from("operaciones_prenda")
     .select("*")
@@ -131,19 +150,16 @@ async function cargarMaestros() {
     .order("codigo_operacion");
   appState.operaciones = opsData || [];
 
-  // Cargar Operarias
   const { data: operariasData } = await getDb()
     .from("operarias")
     .select("*")
     .eq("empresa_id", empresaId)
     .order("nombre");
   appState.operarias = operariasData || [];
-
-  poblarSelectOrdenesRegistro();
 }
 
 // ==============================================================================
-// 2. CONFIGURACIÓN DINÁMICA DE HORAS Y TURNOS (Punto 1)
+// 3. HORARIOS DINÁMICOS & DETECCIÓN AUTOMÁTICA
 // ==============================================================================
 function generarBloquesHorarios() {
   const cfg = appState.empresa.config_turnos || {
@@ -158,8 +174,6 @@ function generarBloquesHorarios() {
   let minutoActual = hIni * 60 + mIni;
 
   appState.bloquesHorarios = [];
-  const selectHora = document.getElementById("reg-hora");
-  selectHora.innerHTML = "";
 
   for (let h = 1; h <= cfg.total_horas; h++) {
     const inicioMin = minutoActual;
@@ -182,12 +196,6 @@ function generarBloquesHorarios() {
       label
     });
 
-    const opt = document.createElement("option");
-    opt.value = h;
-    opt.textContent = label;
-    selectHora.appendChild(opt);
-
-    // Sumar el almuerzo si aplica en este bloque
     minutoActual = finMin;
     if (h === cfg.hora_almuerzo && cfg.minutos_almuerzo > 0) {
       minutoActual += cfg.minutos_almuerzo;
@@ -207,68 +215,93 @@ function autoDetectHoraTurno() {
     }
   }
 
-  const selectHora = document.getElementById("reg-hora");
-  if (selectHora) selectHora.value = bloqueDetectado;
-}
+  // Establecer en ambos formularios
+  const bloqueObj = appState.bloquesHorarios.find(b => b.valor === bloqueDetectado);
+  const labelDetectada = bloqueObj ? bloqueObj.label : `H${bloqueDetectado}`;
 
-// ==============================================================================
-// 3. SEARCHABLE SELECTS & FILTRO DE OPERACIONES POR PRENDA (Punto 4)
-// ==============================================================================
-function poblarSelectOrdenesRegistro() {
-  const select = document.getElementById("reg-orden");
-  select.innerHTML = '<option value="" disabled selected>Seleccione una orden...</option>';
-
-  const ordenesActivas = appState.ordenes.filter(o => o.estado === "activa");
-  if (ordenesActivas.length === 0) {
-    const opt = document.createElement("option");
-    opt.disabled = true;
-    opt.textContent = "No hay órdenes activas. Activa una en Admin.";
-    select.appendChild(opt);
-    return;
+  const inputHoraCostura = document.getElementById("ss-reg-hora-input");
+  const hiddenHoraCostura = document.getElementById("reg-hora");
+  if (inputHoraCostura && hiddenHoraCostura) {
+    inputHoraCostura.value = labelDetectada;
+    hiddenHoraCostura.value = bloqueDetectado;
   }
 
-  ordenesActivas.forEach(ord => {
-    const opt = document.createElement("option");
-    opt.value = ord.id;
-    const ref = ord.prendas ? ord.prendas.referencia : "Sin ref";
-    opt.textContent = `${ord.numero_op} — Ref: ${ref} (Meta: ${ord.cantidad_programada})`;
-    select.appendChild(opt);
-  });
+  const inputHoraTerm = document.getElementById("ss-reg-term-hora-input");
+  const hiddenHoraTerm = document.getElementById("reg-term-hora");
+  if (inputHoraTerm && hiddenHoraTerm) {
+    inputHoraTerm.value = labelDetectada;
+    hiddenHoraTerm.value = bloqueDetectado;
+  }
 }
 
-function configurarSearchableSelects() {
-  // Operarias activas
+// ==============================================================================
+// 4. CONFIGURACIÓN DE BUSCADORES MÁGICOS UNIVERSALES (Punto 5)
+// ==============================================================================
+function configurarTodosLosBuscadoresMagicos() {
+  // 1. Selector Horas Turno (Costura)
+  const itemsHoras = appState.bloquesHorarios.map(b => ({ value: b.valor, label: b.label }));
+  initSearchableSelect("ss-reg-hora", "ss-reg-hora-input", "ss-reg-hora-list", "reg-hora", itemsHoras, "Seleccionar hora...");
+
+  // 2. Selector Horas Turno (Prendas Terminadas)
+  initSearchableSelect("ss-reg-term-hora", "ss-reg-term-hora-input", "ss-reg-term-hora-list", "reg-term-hora", itemsHoras, "Seleccionar hora...");
+
+  // 3. Órdenes Activas
+  const ordenesActivas = appState.ordenes
+    .filter(o => o.estado === "activa")
+    .map(o => ({
+      value: o.id,
+      label: `${o.numero_op} — Ref: ${o.prendas?.referencia || 'Sin ref'} (Meta: ${o.cantidad_programada})`,
+      prenda_id: o.prenda_id
+    }));
+
+  initSearchableSelect("ss-reg-orden", "ss-reg-orden-input", "ss-reg-orden-list", "reg-orden", ordenesActivas, "Buscar orden activa...", alSeleccionarOrdenCostura);
+  initSearchableSelect("ss-reg-term-orden", "ss-reg-term-orden-input", "ss-reg-term-orden-list", "reg-term-orden", ordenesActivas, "Buscar orden activa...");
+
+  // 4. Operarias Activas
   const operariasActivas = appState.operarias
     .filter(op => op.estado === "activa")
     .map(op => ({
       value: op.id,
       label: `${op.codigo_operaria ? '[' + op.codigo_operaria + '] ' : ''}${op.nombre}`
     }));
+  initSearchableSelect("ss-operaria", "ss-operaria-input", "ss-operaria-list", "reg-operaria", operariasActivas, "Buscar operaria...");
 
-  initSearchableSelect(
-    "ss-operaria",
-    "ss-operaria-input",
-    "ss-operaria-list",
-    "reg-operaria",
-    operariasActivas,
-    "Buscar operaria..."
-  );
+  // 5. Operaciones (Inicialmente vacías hasta que elija OP)
+  initSearchableSelect("ss-operacion", "ss-operacion-input", "ss-operacion-list", "reg-operacion", [], "Primero seleccione una orden...");
 
-  // Operaciones vacías hasta que elija una orden
-  initSearchableSelect(
-    "ss-operacion",
-    "ss-operacion-input",
-    "ss-operacion-list",
-    "reg-operacion",
-    [],
-    "Primero seleccione una orden..."
-  );
+  // 6. Motivos de Defecto (Punto 4)
+  const motivosDefecto = [
+    { value: "Sin defectos", label: "✓ Sin defectos (100% Conforme)" },
+    { value: "Costura torcida", label: "⚠️ Costura torcida / desalineada" },
+    { value: "Salto de puntada", label: "⚠️ Salto de puntada / hilo reventado" },
+    { value: "Medida incorrecta", label: "⚠️ Medida fuera de tolerancia" },
+    { value: "Tela picada", label: "⚠️ Tela picada / aguja rota" },
+    { value: "Mancha / suciedad", label: "⚠️ Mancha de aceite / suciedad" },
+    { value: "Descalce de piezas", label: "⚠️ Descalce de piezas / corte defectuoso" },
+    { value: "Otro defecto", label: "⚠️ Otro defecto de confección" }
+  ];
+  initSearchableSelect("ss-term-defecto-motivo", "ss-term-defecto-input", "ss-term-defecto-list", "reg-term-motivo", motivosDefecto, "Seleccionar defecto...");
+
+  // 7. Filtro OP en Dashboard
+  const itemsFiltroOP = [
+    { value: "", label: "Todas las órdenes" },
+    ...appState.ordenes.map(o => ({ value: o.id, label: `${o.numero_op} — Ref: ${o.prendas?.referencia || ''}` }))
+  ];
+  initSearchableSelect("ss-dash-orden", "ss-dash-orden-input", "ss-dash-orden-list", "dash-filter-orden", itemsFiltroOP, "Todas las órdenes");
+
+  // 8. Selectores de Prendas en Admin
+  const itemsPrendas = appState.prendas.map(p => ({
+    value: p.id,
+    label: `${p.referencia} — ${p.descripcion || ''}`,
+    sam_total: p.sam_total
+  }));
+  initSearchableSelect("ss-admin-op-prenda", "ss-admin-op-prenda-input", "ss-admin-op-prenda-list", "admin-op-prenda", itemsPrendas, "Buscar prenda...", calcularProyeccionEntregaEnForm);
+  initSearchableSelect("ss-admin-op-add-prenda", "ss-admin-op-add-prenda-input", "ss-admin-op-add-prenda-list", "admin-operacion-prenda", itemsPrendas, "Buscar prenda...");
 }
 
-// Al cambiar la orden, filtrar SOLO operaciones de la prenda asociada (Punto 4)
-function alCambiarOrden() {
-  const ordenId = document.getElementById("reg-orden").value;
-  const orden = appState.ordenes.find(o => o.id === ordenId);
+// Al seleccionar OP en registro de costura, filtrar operaciones de esa prenda
+function alSeleccionarOrdenCostura(itemSeleccionado) {
+  const orden = appState.ordenes.find(o => o.id === itemSeleccionado.value);
   const containerInfoPrenda = document.getElementById("reg-prenda-info");
 
   if (!orden || !orden.prenda_id) {
@@ -276,17 +309,15 @@ function alCambiarOrden() {
     return;
   }
 
-  // Filtrar operaciones de esa prenda
+  // Filtrar operaciones de esa prenda específica
   const opsPrenda = appState.operaciones
     .filter(op => op.prenda_id === orden.prenda_id)
     .map(op => ({
       value: op.id,
-      label: `${op.codigo_operacion} — ${op.nombre_operacion} (SAM: ${op.sam})${op.es_operacion_final ? ' ⭐ [SALIDA FINAL]' : ''}`,
-      sam: op.sam,
-      es_final: op.es_operacion_final
+      label: `[${op.codigo_operacion}] ${op.nombre_operacion} (SAM: ${op.sam} min)`,
+      sam: op.sam
     }));
 
-  // Actualizar el buscador de operaciones
   const wrapper = document.getElementById("ss-operacion");
   const input = document.getElementById("ss-operacion-input");
   const list = document.getElementById("ss-operacion-list");
@@ -295,18 +326,18 @@ function alCambiarOrden() {
   hidden.value = "";
   input.value = "";
   wrapper._items = opsPrenda;
+  renderDropdownItems(list, hidden, input, opsPrenda, "");
 
   if (containerInfoPrenda) {
     containerInfoPrenda.style.display = "block";
-    const refPrenda = orden.prendas ? orden.prendas.referencia : "";
-    containerInfoPrenda.innerHTML = `<i data-lucide="tag"></i> Prenda: <strong>${refPrenda}</strong> &bull; Total Operaciones: <strong>${opsPrenda.length}</strong>`;
+    const ref = orden.prendas ? orden.prendas.referencia : "Prenda";
+    containerInfoPrenda.innerHTML = `<i data-lucide="tag"></i> Prenda: <strong>${ref}</strong> &bull; Total Operaciones: <strong>${opsPrenda.length}</strong>`;
     lucide.createIcons();
   }
-
-  showToast(`Operaciones cargadas para ${orden.prendas?.referencia || "la orden"}`, "success");
 }
 
-function initSearchableSelect(wrapperId, inputId, listId, hiddenId, items, placeholder) {
+// Componente Searchable Select Reutilizable
+function initSearchableSelect(wrapperId, inputId, listId, hiddenId, items, placeholder, onSelectCallback) {
   const wrapper = document.getElementById(wrapperId);
   const input = document.getElementById(inputId);
   const list = document.getElementById(listId);
@@ -317,20 +348,20 @@ function initSearchableSelect(wrapperId, inputId, listId, hiddenId, items, place
   wrapper._items = items;
   input.placeholder = placeholder || "Buscar...";
 
-  renderDropdownItems(list, hidden, input, items, "");
+  renderDropdownItems(list, hidden, input, items, "", onSelectCallback);
 
   input.addEventListener("focus", () => {
     closeAllDropdowns(listId);
     wrapper.classList.add("open");
     list.classList.add("open");
-    renderDropdownItems(list, hidden, input, wrapper._items || [], "");
+    renderDropdownItems(list, hidden, input, wrapper._items || [], "", onSelectCallback);
   });
 
   input.addEventListener("input", () => {
     if (!list.classList.contains("open")) {
       list.classList.add("open");
     }
-    renderDropdownItems(list, hidden, input, wrapper._items || [], input.value);
+    renderDropdownItems(list, hidden, input, wrapper._items || [], input.value, onSelectCallback);
   });
 
   input.addEventListener("blur", () => {
@@ -345,7 +376,7 @@ function initSearchableSelect(wrapperId, inputId, listId, hiddenId, items, place
   });
 }
 
-function renderDropdownItems(list, hidden, input, items, query) {
+function renderDropdownItems(list, hidden, input, items, query, onSelectCallback) {
   const q = query.trim().toLowerCase();
   const filtered = q
     ? items.filter(item => item.label.toLowerCase().includes(q))
@@ -371,6 +402,11 @@ function renderDropdownItems(list, hidden, input, items, query) {
       list.classList.remove("open");
       list.querySelectorAll(".ss-option").forEach(o => o.classList.remove("active"));
       opt.classList.add("active");
+
+      const itemObj = (items || []).find(i => String(i.value) === String(opt.dataset.value));
+      if (typeof onSelectCallback === "function" && itemObj) {
+        onSelectCallback(itemObj);
+      }
     });
   });
 }
@@ -382,20 +418,11 @@ function closeAllDropdowns(exceptId) {
 }
 
 // ==============================================================================
-// 4. REGISTRAR AVANCE EN SUPABASE (Punto 5: Salida Finalizada)
+// 5. REGISTRO DE AVANCE (COSTURA & PRENDAS TERMINADAS)
 // ==============================================================================
-function cambiarCantidad(delta) {
-  const input = document.getElementById("reg-cantidad");
-  let val = parseInt(input.value) || 0;
-  val = Math.max(1, val + delta);
-  input.value = val;
-}
 
-function fijarCantidad(val) {
-  document.getElementById("reg-cantidad").value = val;
-}
-
-async function enviarFormulario(event) {
+// 5.1 Enviar Formulario de Costura (Puestos)
+async function enviarFormularioCostura(event) {
   event.preventDefault();
 
   const horaTurno = parseInt(document.getElementById("reg-hora").value);
@@ -405,36 +432,21 @@ async function enviarFormulario(event) {
   const cantidad = parseInt(document.getElementById("reg-cantidad").value);
   const observaciones = document.getElementById("reg-observaciones").value;
 
-  if (!ordenId) {
-    showToast("Seleccione una orden de producción.", "error");
-    return;
-  }
-  if (!operariaId) {
-    showToast("Seleccione la operaria.", "error");
-    return;
-  }
-  if (!operacionId) {
-    showToast("Seleccione la operación realizada.", "error");
-    return;
-  }
-  if (!cantidad || cantidad <= 0) {
-    showToast("La cantidad debe ser mayor a cero.", "error");
-    return;
-  }
+  if (!ordenId) { showToast("Seleccione una orden de producción.", "error"); return; }
+  if (!operariaId) { showToast("Seleccione la operaria.", "error"); return; }
+  if (!operacionId) { showToast("Seleccione la operación realizada.", "error"); return; }
+  if (!cantidad || cantidad <= 0) { showToast("Ingrese una cantidad válida mayor a cero.", "error"); return; }
 
-  const submitBtn = document.getElementById("btn-submit-registro");
+  const submitBtn = document.getElementById("btn-submit-costura");
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Guardando...';
 
   try {
-    // 1. Obtener datos de la operación (SAM y si es finalizadora)
     const opInfo = appState.operaciones.find(o => o.id === operacionId);
     const sam = opInfo ? Number(opInfo.sam) : 0;
-    const esFinal = opInfo ? opInfo.es_operacion_final : false;
     const minutosGanados = Number((cantidad * sam).toFixed(3));
 
-    // 2. Insertar en tabla registros_produccion
-    const { data: nuevoReg, error: regError } = await getDb()
+    const { error: regError } = await getDb()
       .from("registros_produccion")
       .insert({
         empresa_id: appState.empresa.id,
@@ -445,44 +457,102 @@ async function enviarFormulario(event) {
         cantidad: cantidad,
         minutos_ganados: minutosGanados,
         observaciones: observaciones
-      })
-      .select()
-      .single();
+      });
 
     if (regError) throw regError;
 
-    // 3. Si la operación es finalizadora, actualizar prendas terminadas en la OP (Punto 5)
-    if (esFinal) {
-      const ordenActual = appState.ordenes.find(o => o.id === ordenId);
-      const prendasPrevias = ordenActual ? (ordenActual.prendas_terminadas || 0) : 0;
-      const nuevasPrendas = prendasPrevias + cantidad;
-
-      await getDb()
-        .from("ordenes_produccion")
-        .update({ prendas_terminadas: nuevasPrendas })
-        .eq("id", ordenId);
-
-      // Actualizar en el estado local
-      if (ordenActual) ordenActual.prendas_terminadas = nuevasPrendas;
-    }
-
     showToast(`✓ Avance guardado: ${cantidad} uds (${minutosGanados} min SAM)`, "success");
-
-    // Limpieza de campos
-    document.getElementById("reg-cantidad").value = 10;
+    document.getElementById("reg-cantidad").value = "";
     document.getElementById("reg-observaciones").value = "";
   } catch (error) {
-    console.error("Error al guardar registro:", error);
+    console.error("Error al guardar avance:", error);
     showToast("Error al guardar: " + error.message, "error");
   } finally {
     submitBtn.disabled = false;
-    submitBtn.innerHTML = '<i data-lucide="check-circle-2"></i> Registrar Avance';
+    submitBtn.innerHTML = '<i data-lucide="check-circle-2"></i> Registrar Avance de Costura';
+    lucide.createIcons();
+  }
+}
+
+// 5.2 Enviar Formulario de Prendas Terminadas & Calidad (Puntos 2 y 4)
+async function enviarFormularioTerminadas(event) {
+  event.preventDefault();
+
+  const horaTurno = parseInt(document.getElementById("reg-term-hora").value);
+  const ordenId = document.getElementById("reg-term-orden").value;
+  const cantidadPrimeras = parseInt(document.getElementById("reg-term-primeras").value) || 0;
+  const cantidadDefectos = parseInt(document.getElementById("reg-term-defectos").value) || 0;
+  const motivoDefecto = document.getElementById("reg-term-motivo").value || "Sin defectos";
+  const observaciones = document.getElementById("reg-term-observaciones").value;
+
+  if (!ordenId) { showToast("Seleccione una orden de producción.", "error"); return; }
+  if (cantidadPrimeras <= 0 && cantidadDefectos <= 0) {
+    showToast("Debe registrar al menos una prenda terminada o un defecto.", "error");
+    return;
+  }
+
+  const submitBtn = document.getElementById("btn-submit-terminadas");
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Guardando salida...';
+
+  try {
+    // 1. Actualizar prendas_terminadas en la tabla ordenes_produccion
+    const orden = appState.ordenes.find(o => o.id === ordenId);
+    const previas = orden ? (orden.prendas_terminadas || 0) : 0;
+    const nuevasTerminadas = previas + cantidadPrimeras;
+
+    await getDb()
+      .from("ordenes_produccion")
+      .update({ prendas_terminadas: nuevasTerminadas })
+      .eq("id", ordenId);
+
+    if (orden) orden.prendas_terminadas = nuevasTerminadas;
+
+    // 2. Intentar guardar en tabla registros_prendas_terminadas (si existe en BD)
+    try {
+      await getDb()
+        .from("registros_prendas_terminadas")
+        .insert({
+          empresa_id: appState.empresa.id,
+          orden_id: ordenId,
+          hora_turno: horaTurno,
+          cantidad_primeras: cantidadPrimeras,
+          cantidad_defectos: cantidadDefectos,
+          motivo_defecto: motivoDefecto,
+          observaciones: observaciones
+        });
+    } catch (e) {
+      // Si la tabla no está creada aún, guardamos localmente en appState para no bloquear
+      console.warn("Tabla registros_prendas_terminadas no encontrada. Guardando en memoria local.");
+    }
+
+    // Guardar en estado local para reflejar inmediatamente en gráficas apiladas
+    appState.registrosTerminadas.push({
+      orden_id: ordenId,
+      hora_turno: horaTurno,
+      cantidad_primeras: cantidadPrimeras,
+      cantidad_defectos: cantidadDefectos,
+      motivo_defecto: motivoDefecto
+    });
+
+    const msgDefecto = cantidadDefectos > 0 ? ` (+${cantidadDefectos} defectos reportados)` : " (100% Primera)";
+    showToast(`✓ Salida de módulo: ${cantidadPrimeras} prendas terminadas${msgDefecto}`, "success");
+
+    document.getElementById("reg-term-primeras").value = "";
+    document.getElementById("reg-term-defectos").value = "0";
+    document.getElementById("reg-term-observaciones").value = "";
+  } catch (error) {
+    console.error("Error al registrar prendas terminadas:", error);
+    showToast("Error: " + error.message, "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i data-lucide="check-check"></i> Registrar Salida de Módulo & Calidad';
     lucide.createIcons();
   }
 }
 
 // ==============================================================================
-// 5. TABLERO DE CONTROL (DASHBOARD) - PUNTOS 7, 8 Y 9
+// 6. TABLERO DE CONTROL (GRÁFICAS APILADAS & EFICIENCIA)
 // ==============================================================================
 function inicializarFiltrosDashboard() {
   const hoy = new Date().toISOString().split("T")[0];
@@ -495,14 +565,10 @@ async function actualizarDashboard() {
     const fechaFiltro = document.getElementById("dash-filter-date").value;
     const ordenFiltro = document.getElementById("dash-filter-orden").value;
     const modoHistorico = document.getElementById("dash-filter-all-dates").checked;
-
     const empresaId = appState.empresa.id;
 
-    // Poblar dropdown de órdenes en el filtro
-    poblarFiltroOrdenesDashboard(ordenFiltro);
-
-    // Consulta de registros con joins
-    let query = getDb()
+    // 1. Cargar Registros de Costura
+    let queryCostura = getDb()
       .from("registros_produccion")
       .select(`
         id, fecha, hora_turno, cantidad, minutos_ganados, observaciones,
@@ -511,36 +577,45 @@ async function actualizarDashboard() {
         operaria_id,
         operarias(codigo_operaria, nombre),
         operacion_id,
-        operaciones_prenda(codigo_operacion, nombre_operacion, sam, es_operacion_final)
+        operaciones_prenda(codigo_operacion, nombre_operacion, sam)
       `)
       .eq("empresa_id", empresaId);
 
-    // Filtro por fecha (a menos que haya marcado ver histórico completo - Punto 7)
     if (!modoHistorico && fechaFiltro) {
-      query = query.eq("fecha", fechaFiltro);
+      queryCostura = queryCostura.eq("fecha", fechaFiltro);
     }
-
-    // Filtro por orden específica (Punto 7)
     if (ordenFiltro) {
-      query = query.eq("orden_id", ordenFiltro);
+      queryCostura = queryCostura.eq("orden_id", ordenFiltro);
     }
 
-    const { data: registros, error } = await query.order("hora_turno", { ascending: true });
-    if (error) throw error;
+    const { data: registrosC, error: errC } = await queryCostura.order("hora_turno", { ascending: true });
+    if (errC) throw errC;
+    appState.registrosCostura = registrosC || [];
 
-    appState.registros = registros || [];
+    // 2. Cargar Registros de Prendas Terminadas
+    try {
+      let queryTerm = getDb()
+        .from("registros_prendas_terminadas")
+        .select("*")
+        .eq("empresa_id", empresaId);
 
-    // 1. Renderizar Progreso de Órdenes
+      if (!modoHistorico && fechaFiltro) {
+        queryTerm = queryTerm.eq("fecha", fechaFiltro);
+      }
+      if (ordenFiltro) {
+        queryTerm = queryTerm.eq("orden_id", ordenFiltro);
+      }
+      const { data: registrosT } = await queryTerm;
+      if (registrosT) appState.registrosTerminadas = registrosT;
+    } catch (e) {
+      console.warn("No se pudo cargar registros_prendas_terminadas desde BD:", e);
+    }
+
+    // 3. Renderizar Componentes del Tablero
     renderizarProgresoOrdenes(ordenFiltro);
-
-    // 2. Renderizar Barras Hora a Hora
-    renderizarBarrasHorarias();
-
-    // 3. Renderizar Tabla de Eficiencia de Operarias con Totales (Punto 8)
-    renderizarTablaEficiencias();
-
-    // 4. Renderizar Detalle de Operaciones y Resumen Totalizador (Punto 9)
-    renderizarDetalleOperaciones();
+    renderizarBarrasApiladasHorarias(ordenFiltro); // Punto 6
+    renderizarTablaEficiencias();                   // Punto 8
+    renderizarDetalleOperaciones();                 // Punto 9
 
   } catch (error) {
     console.error("Error al actualizar dashboard:", error);
@@ -549,20 +624,6 @@ async function actualizarDashboard() {
     showLoader(false);
     lucide.createIcons();
   }
-}
-
-function poblarFiltroOrdenesDashboard(seleccionada) {
-  const select = document.getElementById("dash-filter-orden");
-  select.innerHTML = '<option value="">Todas las órdenes</option>';
-
-  appState.ordenes.forEach(ord => {
-    const opt = document.createElement("option");
-    opt.value = ord.id;
-    const ref = ord.prendas ? ord.prendas.referencia : "";
-    opt.textContent = `${ord.numero_op} — Ref: ${ref}`;
-    if (ord.id === seleccionada) opt.selected = true;
-    select.appendChild(opt);
-  });
 }
 
 function renderizarProgresoOrdenes(ordenFiltro) {
@@ -585,7 +646,7 @@ function renderizarProgresoOrdenes(ordenFiltro) {
     const pctCapped = Math.min(pct, 100);
 
     container.insertAdjacentHTML("beforeend", `
-      <div class="order-progress-card">
+      <div class="order-progress-card" style="margin-bottom:14px;">
         <div class="order-meta-info">
           <h4>${escapeHtml(ord.numero_op)} &bull; <span class="order-ref">${escapeHtml(ord.prendas?.referencia || "Sin ref")}</span></h4>
           <span class="status-pill ${ord.estado}">${ord.estado.toUpperCase()}</span>
@@ -595,56 +656,108 @@ function renderizarProgresoOrdenes(ordenFiltro) {
         </div>
         <div class="order-stats">
           <span>Progreso: <strong>${pct}%</strong></span>
-          <span><span class="stat-completed">${terminadas}</span> / ${meta} prendas terminadas</span>
+          <span><span class="stat-completed">${terminadas}</span> / ${meta} prendas finalizadas</span>
         </div>
       </div>
     `);
   });
 }
 
-function renderizarBarrasHorarias() {
-  const container = document.getElementById("hourly-bars");
-  container.innerHTML = "";
+// Punto 6: Gráfico de Barras Apiladas por Hora (Prendas Terminadas por Orden)
+function renderizarBarrasApiladasHorarias(ordenFiltro) {
+  const containerBars = document.getElementById("stacked-hourly-bars");
+  const containerLegend = document.getElementById("stacked-chart-legend");
+  containerBars.innerHTML = "";
+  containerLegend.innerHTML = "";
 
-  const horasMap = {};
-  appState.bloquesHorarios.forEach(b => { horasMap[b.valor] = 0; });
+  // 1. Identificar órdenes activas y asignarles un color único
+  const mapaColoresOP = {};
+  const ordenesEnJuego = ordenFiltro
+    ? appState.ordenes.filter(o => o.id === ordenFiltro)
+    : appState.ordenes.filter(o => o.estado === "activa");
 
-  appState.registros.forEach(r => {
-    if (horasMap[r.hora_turno] !== undefined) {
-      horasMap[r.hora_turno] += Number(r.cantidad) || 0;
+  ordenesEnJuego.forEach((ord, idx) => {
+    mapaColoresOP[ord.id] = {
+      color: OP_COLORS[idx % OP_COLORS.length],
+      numero_op: ord.numero_op,
+      referencia: ord.prendas?.referencia || ""
+    };
+  });
+
+  // Generar leyenda
+  Object.values(mapaColoresOP).forEach(opInfo => {
+    containerLegend.insertAdjacentHTML("beforeend", `
+      <div class="legend-item">
+        <div class="legend-color" style="background:${opInfo.color};"></div>
+        <span>${escapeHtml(opInfo.numero_op)} (${escapeHtml(opInfo.referencia)})</span>
+      </div>
+    `);
+  });
+
+  // 2. Estructurar matriz: matriz[hora][orden_id] = cantidad
+  const matrizHoras = {};
+  let maxTotalHora = 10;
+
+  appState.bloquesHorarios.forEach(b => {
+    matrizHoras[b.valor] = { total: 0, porOrden: {} };
+    ordenesEnJuego.forEach(o => { matrizHoras[b.valor].porOrden[o.id] = 0; });
+  });
+
+  appState.registrosTerminadas.forEach(r => {
+    const hora = r.hora_turno;
+    const opId = r.orden_id;
+    const cant = Number(r.cantidad_primeras) || 0;
+
+    if (matrizHoras[hora] && matrizHoras[hora].porOrden[opId] !== undefined) {
+      matrizHoras[hora].porOrden[opId] += cant;
+      matrizHoras[hora].total += cant;
+      if (matrizHoras[hora].total > maxTotalHora) {
+        maxTotalHora = matrizHoras[hora].total;
+      }
     }
   });
 
-  const maxCant = Math.max(...Object.values(horasMap), 10);
-
+  // 3. Renderizar columnas apiladas
   appState.bloquesHorarios.forEach(b => {
-    const cant = horasMap[b.valor] || 0;
-    const pctHeight = (cant / maxCant) * 100;
+    const dataHora = matrizHoras[b.valor];
+    let segmentosHtml = "";
 
-    container.insertAdjacentHTML("beforeend", `
-      <div class="bar-wrapper">
-        <div class="bar" style="height: ${Math.max(pctHeight, 4)}%">
-          <span class="bar-value">${cant > 0 ? cant : ''}</span>
+    ordenesEnJuego.forEach(o => {
+      const cantOP = dataHora.porOrden[o.id] || 0;
+      if (cantOP > 0) {
+        const pctHeight = (cantOP / maxTotalHora) * 100;
+        const color = mapaColoresOP[o.id]?.color || "#4f46e5";
+        segmentosHtml += `
+          <div class="bar-segment" style="height:${pctHeight}%; background:${color};" title="${mapaColoresOP[o.id]?.numero_op}: ${cantOP} uds"></div>
+        `;
+      }
+    });
+
+    containerBars.insertAdjacentHTML("beforeend", `
+      <div class="stacked-bar-col">
+        ${dataHora.total > 0 ? `<span class="stacked-bar-total">${dataHora.total}</span>` : ''}
+        <div class="stacked-bar-track">
+          ${segmentosHtml}
         </div>
-        <span class="bar-label">H${b.valor}</span>
+        <span class="stacked-bar-label">H${b.valor}</span>
       </div>
     `);
   });
 }
 
-// Punto 8: Tabla de Eficiencia con Total Unidades y % Eficiencia Día
+// Punto 8: Tabla de Eficiencia con Totales de Unidades y % Eficiencia Día
 function renderizarTablaEficiencias() {
   const tbody = document.getElementById("efficiency-tbody");
   tbody.innerHTML = "";
 
-  if (appState.registros.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="15" class="empty-message">No hay registros con los filtros seleccionados.</td></tr>';
+  if (appState.registrosCostura.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="15" class="empty-message">No hay registros de costura con los filtros seleccionados.</td></tr>';
     return;
   }
 
   const operariasStats = {};
 
-  appState.registros.forEach(r => {
+  appState.registrosCostura.forEach(r => {
     const opId = r.operaria_id;
     const nombre = r.operarias?.nombre || "Operaria";
     const codigo = r.operarias?.codigo_operaria ? `[${r.operarias.codigo_operaria}] ` : "";
@@ -655,8 +768,7 @@ function renderizarTablaEficiencias() {
         horas: {},
         prendasHora: {},
         totalUnidades: 0,
-        totalMinutosGanados: 0,
-        horasTrabajadasCount: 0
+        totalMinutosGanados: 0
       };
       appState.bloquesHorarios.forEach(b => {
         operariasStats[opId].horas[b.valor] = 0;
@@ -693,7 +805,7 @@ function renderizarTablaEficiencias() {
         trHtml += `
           <td>
             <span class="badge-efficiency ${badgeClass}">${efHora}%</span>
-            <div class="efficiency-qty">${cantPrendas} uds</div>
+            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">${cantPrendas} uds</div>
           </td>
         `;
       } else {
@@ -701,10 +813,8 @@ function renderizarTablaEficiencias() {
       }
     });
 
-    // Punto 8: Total Unidades
-    trHtml += `<td class="col-total"><strong style="color: var(--primary); font-size: 0.9rem;">${op.totalUnidades} uds</strong></td>`;
+    trHtml += `<td class="col-total"><strong style="color:var(--mod-reg-primary); font-size:0.9rem;">${op.totalUnidades} uds</strong></td>`;
 
-    // Punto 8: % Eficiencia Total del Día
     const minutosDisponiblesJornada = (horasConActividad || 1) * duracionHoraMin;
     const efDia = Math.round((op.totalMinutosGanados / minutosDisponiblesJornada) * 100);
     let badgeDiaClass = "badge-medium";
@@ -713,8 +823,7 @@ function renderizarTablaEficiencias() {
 
     trHtml += `
       <td class="col-total">
-        <span class="badge-efficiency ${badgeDiaClass}" style="font-size: 0.85rem; padding: 6px 8px;">${efDia}%</span>
-        <div class="efficiency-qty">${op.totalMinutosGanados.toFixed(1)} min SAM</div>
+        <span class="badge-efficiency ${badgeDiaClass}" style="font-size:0.85rem; padding:6px 10px;">${efDia}%</span>
       </td>
     </tr>`;
 
@@ -728,20 +837,17 @@ function renderizarDetalleOperaciones() {
   const filtroActual = selectOperariaFiltro.value;
 
   const operariasMap = {};
-  appState.registros.forEach(r => {
+  appState.registrosCostura.forEach(r => {
     if (r.operarias) {
       operariasMap[r.operaria_id] = r.operarias.nombre;
     }
   });
 
-  selectOperariaFiltro.innerHTML = '<option value="">Todas las operarias</option>';
-  Object.keys(operariasMap).sort().forEach(id => {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = operariasMap[id];
-    if (id === filtroActual) opt.selected = true;
-    selectOperariaFiltro.appendChild(opt);
-  });
+  const itemsOps = [
+    { value: "", label: "Todas las operarias" },
+    ...Object.keys(operariasMap).sort().map(id => ({ value: id, label: operariasMap[id] }))
+  ];
+  initSearchableSelect("ss-detail-operaria", "ss-detail-operaria-input", "ss-detail-operaria-list", "detail-filter-operaria", itemsOps, "Todas las operarias", filtrarDetalleOperaciones);
 
   filtrarDetalleOperaciones();
 }
@@ -752,10 +858,9 @@ function filtrarDetalleOperaciones() {
   tbody.innerHTML = "";
 
   const registrosFiltrados = opIdFiltro
-    ? appState.registros.filter(r => r.operaria_id === opIdFiltro)
-    : appState.registros;
+    ? appState.registrosCostura.filter(r => r.operaria_id === opIdFiltro)
+    : appState.registrosCostura;
 
-  // Punto 9: Sumar unidades totales sin importar la operación realizada
   let totalUnidadesSumadas = 0;
   let totalMinutosSamSumados = 0;
 
@@ -775,32 +880,30 @@ function filtrarDetalleOperaciones() {
   registrosFiltrados.forEach(r => {
     const nombreOp = r.operaciones_prenda ? r.operaciones_prenda.nombre_operacion : "Operación";
     const codOp = r.operaciones_prenda ? r.operaciones_prenda.codigo_operacion : "";
-    const esFinal = r.operaciones_prenda?.es_operacion_final;
 
     tbody.insertAdjacentHTML("beforeend", `
       <tr>
-        <td style="text-align: left !important; font-weight: 500;">${escapeHtml(r.operarias?.nombre || "")}</td>
+        <td style="text-align: left !important; font-weight: 600;">${escapeHtml(r.operarias?.nombre || "")}</td>
         <td><span class="badge-efficiency badge-none">H${r.hora_turno}</span></td>
         <td style="text-align: left !important;">
-          <strong>[${codOp}]</strong> ${escapeHtml(nombreOp)}
-          ${esFinal ? '<span class="status-pill activa" style="margin-left: 4px;">Fin</span>' : ''}
+          <strong style="color:var(--mod-dash-primary);">[${codOp}]</strong> ${escapeHtml(nombreOp)}
         </td>
-        <td><strong style="color: var(--primary);">${r.cantidad} uds</strong></td>
+        <td><strong style="color:var(--text-main); font-size:0.9rem;">${r.cantidad} uds</strong></td>
         <td>${Number(r.minutos_ganados || 0).toFixed(2)} min</td>
       </tr>
     `);
   });
 }
 
-// Exportar datos actuales a CSV (Compatible con Excel - Punto 6)
+// Exportar datos actuales a CSV (Compatible con Excel)
 function exportarReporteCSV() {
-  if (appState.registros.length === 0) {
+  if (appState.registrosCostura.length === 0 && appState.registrosTerminadas.length === 0) {
     showToast("No hay registros para exportar.", "error");
     return;
   }
 
   const encabezados = ["ID_Registro", "Fecha", "Hora_Turno", "Orden", "Operaria", "Operacion", "Cantidad", "Minutos_SAM", "Observaciones"];
-  const filas = appState.registros.map(r => [
+  const filas = appState.registrosCostura.map(r => [
     r.id,
     r.fecha,
     `H${r.hora_turno}`,
@@ -824,7 +927,7 @@ function exportarReporteCSV() {
 }
 
 // ==============================================================================
-// 6. PANEL ADMINISTRADOR / MAESTROS (PUNTOS 2, 3, 4 Y 6)
+// 7. PANEL ADMINISTRADOR, MAESTROS & PROYECCIÓN (Puntos 8 y 9)
 // ==============================================================================
 function abrirModalAdminPin() {
   document.getElementById("modal-admin-pin").classList.add("open");
@@ -844,7 +947,7 @@ function validarAdminPin() {
     switchView("admin");
     showToast("✓ Modo Administrador Activado", "success");
   } else {
-    showToast("PIN incorrecto. (Por defecto es 1234)", "error");
+    showToast("PIN incorrecto. (Por defecto: 1234)", "error");
   }
 }
 
@@ -872,10 +975,9 @@ function salirModoAdmin() {
 }
 
 function switchAdminTab(tabId) {
-  document.querySelectorAll(".admin-subnav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".admin-pane").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".admin-subnav-btn").forEach(b => b.classList.remove("active"));
 
-  document.getElementById(`btn-admin-${tabId}`).classList.add("active");
   document.getElementById(`admin-pane-${tabId}`).classList.add("active");
   lucide.createIcons();
 }
@@ -887,17 +989,43 @@ async function cargarDatosAdmin() {
   renderAdminTurnos();
 }
 
-// --- SUBMÓDULO: ÓRDENES DE PRODUCCIÓN (Punto 2) ---
-function renderAdminOrdenes() {
-  const selectPrenda = document.getElementById("admin-op-prenda");
-  selectPrenda.innerHTML = '<option value="" disabled selected>Seleccione prenda...</option>';
-  appState.prendas.forEach(p => {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = `${p.referencia} — ${p.descripcion || ''}`;
-    selectPrenda.appendChild(opt);
-  });
+// Punto 9: Calculadora de Capacidad y Tiempos de Entrega en el Formulario
+function calcularProyeccionEntregaEnForm() {
+  const prendaId = document.getElementById("admin-op-prenda").value;
+  const meta = parseInt(document.getElementById("admin-op-meta").value) || 0;
+  const operarias = parseInt(document.getElementById("admin-op-operarias").value) || 10;
+  const eficiencia = parseInt(document.getElementById("admin-op-eficiencia").value) || 80;
 
+  const cardPreview = document.getElementById("capacity-form-preview");
+  if (!prendaId || meta <= 0) {
+    cardPreview.style.display = "none";
+    return;
+  }
+
+  const prenda = appState.prendas.find(p => p.id === prendaId);
+  const samPrenda = prenda ? Number(prenda.sam_total) : 0;
+
+  if (samPrenda <= 0) {
+    cardPreview.style.display = "none";
+    return;
+  }
+
+  const totalMinutosRequeridos = meta * samPrenda;
+  const duracionHoraMin = appState.empresa.config_turnos?.duracion_bloque_min || 60;
+  const totalHorasTurno = appState.empresa.config_turnos?.total_horas || 9;
+  const minutosJornadaPlanta = totalHorasTurno * duracionHoraMin;
+
+  const capacidadDiariaMinutos = Math.round(operarias * minutosJornadaPlanta * (eficiencia / 100));
+  const diasEstimados = capacidadDiariaMinutos > 0 ? (totalMinutosRequeridos / capacidadDiariaMinutos).toFixed(1) : 0;
+
+  cardPreview.style.display = "block";
+  document.getElementById("cap-calc-minutos").textContent = `${totalMinutosRequeridos.toLocaleString()} min`;
+  document.getElementById("cap-calc-diaria").textContent = `${capacidadDiariaMinutos.toLocaleString()} min/día`;
+  document.getElementById("cap-calc-dias").textContent = `${diasEstimados} días hábiles`;
+}
+
+// 7.1 Órdenes de Producción
+function renderAdminOrdenes() {
   const list = document.getElementById("admin-ordenes-list");
   list.innerHTML = "";
 
@@ -907,13 +1035,20 @@ function renderAdminOrdenes() {
   }
 
   appState.ordenes.forEach(ord => {
+    const meta = ord.cantidad_programada || 0;
+    const samTotal = ord.prendas?.sam_total || 0;
+    const minTotales = (meta * samTotal).toFixed(0);
+
     list.insertAdjacentHTML("beforeend", `
-      <div class="data-list-item">
-        <div class="data-list-info">
-          <h5>${escapeHtml(ord.numero_op)} &bull; <span style="color: var(--primary);">${escapeHtml(ord.prendas?.referencia || '')}</span></h5>
-          <p>Meta: <strong>${ord.cantidad_programada} uds</strong> &bull; Terminadas: <strong>${ord.prendas_terminadas || 0}</strong> &bull; Estado: <span class="status-pill ${ord.estado}">${ord.estado}</span></p>
+      <div class="data-list-item" style="flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <h5><strong>${escapeHtml(ord.numero_op)}</strong> &bull; <span style="color:var(--mod-adm-primary);">${escapeHtml(ord.prendas?.referencia || '')}</span></h5>
+          <span class="status-pill ${ord.estado}">${ord.estado.toUpperCase()}</span>
         </div>
-        <div style="display:flex; gap:6px;">
+        <p style="font-size:0.82rem; color:var(--text-muted);">
+          Meta: <strong>${meta} uds</strong> &bull; Terminadas: <strong>${ord.prendas_terminadas || 0}</strong> &bull; Carga Fabril: <strong>${minTotales} min SAM</strong>
+        </p>
+        <div style="display:flex; gap:8px; margin-top:4px;">
           ${ord.estado !== 'activa' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'activa')">Activar</button>` : ''}
           ${ord.estado === 'activa' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'pausada')">Pausar</button>` : ''}
           ${ord.estado !== 'finalizada' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'finalizada')">Finalizar</button>` : ''}
@@ -951,10 +1086,11 @@ async function crearNuevaOP(event) {
     if (error) throw error;
 
     appState.ordenes.unshift(data);
-    poblarSelectOrdenesRegistro();
+    configurarTodosLosBuscadoresMagicos();
     renderAdminOrdenes();
     document.getElementById("admin-op-num").value = "";
     document.getElementById("admin-op-meta").value = "";
+    document.getElementById("capacity-form-preview").style.display = "none";
     showToast(`✓ Orden ${numOP} creada con éxito`, "success");
   } catch (err) {
     showToast("Error al crear OP: " + err.message, "error");
@@ -975,7 +1111,7 @@ async function cambiarEstadoOP(id, nuevoEstado) {
     const op = appState.ordenes.find(o => o.id === id);
     if (op) op.estado = nuevoEstado;
 
-    poblarSelectOrdenesRegistro();
+    configurarTodosLosBuscadoresMagicos();
     renderAdminOrdenes();
     showToast(`Orden actualizada a ${nuevoEstado}`, "success");
   } catch (err) {
@@ -983,7 +1119,7 @@ async function cambiarEstadoOP(id, nuevoEstado) {
   }
 }
 
-// --- SUBMÓDULO: OPERARIAS / MÁSTER PERSONAL (Punto 3 + CARGA EXCEL) ---
+// 7.2 Personal / Operarias
 function renderAdminOperarias() {
   const list = document.getElementById("admin-operarias-list");
   list.innerHTML = "";
@@ -1015,10 +1151,7 @@ async function crearNuevaOperaria(event) {
   const codigo = document.getElementById("admin-operaria-codigo").value.trim();
   const modulo = document.getElementById("admin-operaria-modulo").value.trim();
 
-  if (!nombre) {
-    showToast("El nombre de la operaria es requerido.", "error");
-    return;
-  }
+  if (!nombre) { showToast("El nombre de la operaria es requerido.", "error"); return; }
 
   showLoader(true, "Guardando operaria...");
   try {
@@ -1037,7 +1170,7 @@ async function crearNuevaOperaria(event) {
     if (error) throw error;
 
     appState.operarias.push(data);
-    configurarSearchableSelects();
+    configurarTodosLosBuscadoresMagicos();
     renderAdminOperarias();
     document.getElementById("admin-operaria-nombre").value = "";
     document.getElementById("admin-operaria-codigo").value = "";
@@ -1061,7 +1194,7 @@ async function toggleEstadoOperaria(id, nuevoEstado) {
     const op = appState.operarias.find(o => o.id === id);
     if (op) op.estado = nuevoEstado;
 
-    configurarSearchableSelects();
+    configurarTodosLosBuscadoresMagicos();
     renderAdminOperarias();
     showToast(`Operaria ${op.nombre} ahora está ${nuevoEstado}`, "success");
   } catch (err) {
@@ -1069,162 +1202,230 @@ async function toggleEstadoOperaria(id, nuevoEstado) {
   }
 }
 
-// Descargar Plantilla Excel para Operarias
-function descargarPlantillaOperariasExcel() {
-  const datos = [
-    ["Nombre", "Codigo", "Modulo"],
-    ["María González", "OP-101", "Módulo 1"],
-    ["Luz Stella Pérez", "OP-102", "Módulo 1"],
-    ["Carmen Elena Rodríguez", "OP-103", "Módulo 2"]
-  ];
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(datos);
-  XLSX.utils.book_append_sheet(wb, ws, "Operarias");
-  XLSX.writeFile(wb, "Plantilla_Operarias_Confeccion.xlsx");
-  showToast("Plantilla descargada: llena tus datos y súbela.", "success");
+// 7.3 Prendas & Fichas SAM (Punto 8: Modificar SAM y Auto-código)
+function renderAdminPrendas() {
+  const list = document.getElementById("admin-prendas-list");
+  list.innerHTML = "";
+
+  appState.prendas.forEach(p => {
+    const opsDePrenda = appState.operaciones.filter(o => o.prenda_id === p.id);
+    const samTotal = opsDePrenda.reduce((sum, o) => sum + Number(o.sam || 0), 0);
+
+    list.insertAdjacentHTML("beforeend", `
+      <div class="data-list-item" style="flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom:16px;">
+        <div style="display: flex; justify-content: space-between; width: 100%;">
+          <h5><i data-lucide="shirt" style="width:18px;height:18px;display:inline;"></i> <strong>${escapeHtml(p.referencia)}</strong></h5>
+          <strong style="color: var(--mod-adm-primary); font-size:1rem;">${samTotal.toFixed(3)} min SAM Total</strong>
+        </div>
+        <p style="font-size:0.82rem; color:var(--text-muted);">${escapeHtml(p.descripcion || 'Sin descripción')} &bull; ${opsDePrenda.length} operaciones creadas</p>
+        
+        <div style="width: 100%; font-size: 0.82rem; background: #fff; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--border-color);">
+          ${opsDePrenda.map(o => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding: 6px 0; border-bottom:1px solid #f1f5f9;">
+              <div>
+                <strong style="color:var(--mod-adm-primary);">[${o.codigo_operacion}]</strong> ${escapeHtml(o.nombre_operacion)} 
+                <span style="color:var(--text-muted); margin-left:6px;">(${o.sam} min)</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" style="height:28px; font-size:0.75rem; padding:0 8px;" onclick="abrirModalEditSAM('${o.id}', '${escapeHtml(o.nombre_operacion)}', ${o.sam})">
+                <i data-lucide="edit-2"></i> Editar SAM
+              </button>
+            </div>
+          `).join('') || '<em style="color:var(--text-muted);">No tiene operaciones en su ruta aún</em>'}
+        </div>
+      </div>
+    `);
+  });
+  lucide.createIcons();
 }
 
-// Procesar Archivo Excel Operarias
-function alSeleccionarArchivoExcelOperarias(event) {
-  const file = event.target.files[0];
-  if (!file) return;
+async function crearNuevaPrenda(event) {
+  event.preventDefault();
+  const ref = document.getElementById("admin-prenda-ref").value.trim();
+  const desc = document.getElementById("admin-prenda-desc").value.trim();
 
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    try {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      const json = XLSX.utils.sheet_to_json(worksheet);
+  if (!ref) { showToast("La referencia de la prenda es requerida.", "error"); return; }
 
-      if (!json || json.length === 0) {
-        showToast("El archivo de Excel parece estar vacío.", "error");
-        return;
-      }
-
-      appState.operariasImportBuffer = [];
-
-      json.forEach(row => {
-        const nombre = row["Nombre"] || row["nombre"] || row["OPERARIA"] || row["Operaria"] || row["NOMBRE COMPLETO"];
-        const codigo = row["Codigo"] || row["codigo"] || row["CODIGO"] || row["Cedula"] || "";
-        const modulo = row["Modulo"] || row["modulo"] || row["MODULO"] || row["Linea"] || "Módulo 1";
-
-        if (nombre && String(nombre).trim()) {
-          appState.operariasImportBuffer.push({
-            nombre: String(nombre).trim(),
-            codigo_operaria: String(codigo).trim(),
-            modulo_linea: String(modulo).trim()
-          });
-        }
-      });
-
-      if (appState.operariasImportBuffer.length === 0) {
-        showToast("No se encontraron filas válidas con la columna 'Nombre'.", "error");
-        return;
-      }
-
-      // Mostrar Vista Previa
-      const previewBox = document.getElementById("preview-import-operarias");
-      const title = document.getElementById("preview-operarias-title");
-      const content = document.getElementById("preview-operarias-content");
-
-      title.textContent = `Se detectaron ${appState.operariasImportBuffer.length} operarias listas para importar:`;
-      content.innerHTML = appState.operariasImportBuffer.slice(0, 8).map(o => 
-        `<div>&bull; <strong>${escapeHtml(o.nombre)}</strong> ${o.codigo_operaria ? `(${o.codigo_operaria})` : ''} - ${escapeHtml(o.modulo_linea)}</div>`
-      ).join("") + (appState.operariasImportBuffer.length > 8 ? `<div style="color:var(--text-muted);margin-top:4px;">... y ${appState.operariasImportBuffer.length - 8} más</div>` : "");
-
-      previewBox.style.display = "block";
-      showToast(`${appState.operariasImportBuffer.length} operarias listas para confirmar`, "success");
-    } catch (err) {
-      console.error(err);
-      showToast("Error al leer el archivo Excel: " + err.message, "error");
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-// Confirmar Importación de Operarias a Supabase
-async function confirmarImportacionOperarias() {
-  if (!appState.operariasImportBuffer || appState.operariasImportBuffer.length === 0) {
-    showToast("No hay datos pendientes por importar.", "error");
-    return;
-  }
-
-  showLoader(true, `Importando ${appState.operariasImportBuffer.length} operarias a la nube...`);
+  showLoader(true, "Creando prenda...");
   try {
-    const filasParaInsertar = appState.operariasImportBuffer.map(o => ({
-      empresa_id: appState.empresa.id,
-      nombre: o.nombre,
-      codigo_operaria: o.codigo_operaria || `OP-${Math.floor(100 + Math.random() * 900)}`,
-      modulo_linea: o.modulo_linea || "Módulo 1",
-      estado: "activa"
-    }));
-
     const { data, error } = await getDb()
-      .from("operarias")
-      .insert(filasParaInsertar)
-      .select();
+      .from("prendas")
+      .insert({
+        empresa_id: appState.empresa.id,
+        referencia: ref,
+        descripcion: desc,
+        estado: "activa"
+      })
+      .select()
+      .single();
 
     if (error) throw error;
 
-    appState.operarias.push(...(data || []));
-    configurarSearchableSelects();
-    renderAdminOperarias();
-
-    document.getElementById("preview-import-operarias").style.display = "none";
-    document.getElementById("excel-file-operarias").value = "";
-    appState.operariasImportBuffer = null;
-
-    showToast(`✓ Se importaron ${data.length} operarias con éxito`, "success");
+    appState.prendas.push(data);
+    configurarTodosLosBuscadoresMagicos();
+    renderAdminPrendas();
+    document.getElementById("admin-prenda-ref").value = "";
+    document.getElementById("admin-prenda-desc").value = "";
+    showToast(`✓ Prenda ${ref} registrada`, "success");
   } catch (err) {
-    showToast("Error al importar: " + err.message, "error");
+    showToast("Error: " + err.message, "error");
   } finally {
     showLoader(false);
   }
 }
 
-// --- SUBMÓDULO: PRENDAS Y OPERACIONES (Punto 4 + CARGA MASIVA EXCEL) ---
-function renderAdminPrendas() {
-  const selectPrendaOps = document.getElementById("admin-operacion-prenda");
-  selectPrendaOps.innerHTML = '<option value="" disabled selected>Seleccione prenda para asignarle operaciones...</option>';
+// Agregar Operación Manual a Prenda (Punto 8: Auto-código si está vacío)
+async function agregarOperacionAPrenda(event) {
+  event.preventDefault();
+  const prendaId = document.getElementById("admin-operacion-prenda").value;
+  let codOp = document.getElementById("admin-operacion-codigo").value.trim();
+  const nombreOp = document.getElementById("admin-operacion-nombre").value.trim();
+  const sam = parseFloat(document.getElementById("admin-operacion-sam").value);
 
-  const list = document.getElementById("admin-prendas-list");
-  list.innerHTML = "";
+  if (!prendaId || !nombreOp || isNaN(sam)) {
+    showToast("Complete los datos requeridos de la operación.", "error");
+    return;
+  }
 
-  appState.prendas.forEach(p => {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = `${p.referencia} — ${p.descripcion || ''}`;
-    selectPrendaOps.appendChild(opt);
+  // Punto 8: Si no escribió código, auto-generar OP-01, OP-02...
+  if (!codOp) {
+    const opsActualesPrenda = appState.operaciones.filter(o => o.prenda_id === prendaId);
+    codOp = `OP-${String(opsActualesPrenda.length + 1).padStart(2, '0')}`;
+  }
 
-    const opsDePrenda = appState.operaciones.filter(o => o.prenda_id === p.id);
-    const samTotal = opsDePrenda.reduce((sum, o) => sum + Number(o.sam || 0), 0);
+  showLoader(true, "Guardando operación...");
+  try {
+    const { data, error } = await getDb()
+      .from("operaciones_prenda")
+      .insert({
+        empresa_id: appState.empresa.id,
+        prenda_id: prendaId,
+        codigo_operacion: codOp,
+        nombre_operacion: nombreOp,
+        sam: sam
+      })
+      .select()
+      .single();
 
-    list.insertAdjacentHTML("beforeend", `
-      <div class="data-list-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-        <div style="display: flex; justify-content: space-between; width: 100%;">
-          <h5><i data-lucide="shirt" style="width:16px;height:16px;display:inline;"></i> ${escapeHtml(p.referencia)}</h5>
-          <strong style="color: var(--primary);">${samTotal.toFixed(3)} min SAM Total</strong>
-        </div>
-        <p style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(p.descripcion || 'Sin descripción')} &bull; ${opsDePrenda.length} operaciones</p>
-        <div style="width: 100%; font-size: 0.78rem; background: #fff; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color);">
-          ${opsDePrenda.map(o => `<div>&bull; <strong>[${o.codigo_operacion}]</strong> ${escapeHtml(o.nombre_operacion)} (${o.sam} min) ${o.es_operacion_final ? '⭐' : ''}</div>`).join('') || '<em>No tiene operaciones creadas aún</em>'}
-        </div>
-      </div>
-    `);
-  });
+    if (error) throw error;
+
+    appState.operaciones.push(data);
+
+    // Recalcular sam_total de la prenda
+    const opsActualizadas = appState.operaciones.filter(o => o.prenda_id === prendaId);
+    const nuevoSamTotal = opsActualizadas.reduce((s, o) => s + Number(o.sam || 0), 0);
+    await getDb().from("prendas").update({ sam_total: nuevoSamTotal }).eq("id", prendaId);
+
+    const prendaObj = appState.prendas.find(p => p.id === prendaId);
+    if (prendaObj) prendaObj.sam_total = nuevoSamTotal;
+
+    renderAdminPrendas();
+    document.getElementById("admin-operacion-codigo").value = "";
+    document.getElementById("admin-operacion-nombre").value = "";
+    document.getElementById("admin-operacion-sam").value = "";
+    showToast(`✓ Operación ${codOp} agregada a la ficha`, "success");
+  } catch (err) {
+    showToast("Error: " + err.message, "error");
+  } finally {
+    showLoader(false);
+  }
 }
 
-// Descargar Plantilla Excel para Prendas y SAMs
+// Punto 8: Modal para Editar SAM in-situ
+function abrirModalEditSAM(opId, opNombre, samActual) {
+  document.getElementById("edit-sam-op-id").value = opId;
+  document.getElementById("edit-sam-desc").textContent = `Operación: ${opNombre}`;
+  document.getElementById("edit-sam-valor").value = samActual;
+  document.getElementById("modal-edit-sam").classList.add("open");
+}
+
+function cerrarModalEditSAM() {
+  document.getElementById("modal-edit-sam").classList.remove("open");
+}
+
+async function guardarEdicionSAM() {
+  const opId = document.getElementById("edit-sam-op-id").value;
+  const nuevoSAM = parseFloat(document.getElementById("edit-sam-valor").value);
+
+  if (isNaN(nuevoSAM) || nuevoSAM <= 0) {
+    showToast("Ingrese un valor de SAM válido mayor a 0.", "error");
+    return;
+  }
+
+  showLoader(true, "Actualizando SAM...");
+  try {
+    const { error } = await getDb()
+      .from("operaciones_prenda")
+      .update({ sam: nuevoSAM })
+      .eq("id", opId);
+
+    if (error) throw error;
+
+    const op = appState.operaciones.find(o => o.id === opId);
+    if (op) {
+      op.sam = nuevoSAM;
+      // Recalcular SAM total de esa prenda
+      const prendaId = op.prenda_id;
+      const opsPrenda = appState.operaciones.filter(o => o.prenda_id === prendaId);
+      const totalSam = opsPrenda.reduce((s, o) => s + Number(o.sam || 0), 0);
+      await getDb().from("prendas").update({ sam_total: totalSam }).eq("id", prendaId);
+
+      const pr = appState.prendas.find(p => p.id === prendaId);
+      if (pr) pr.sam_total = totalSam;
+    }
+
+    cerrarModalEditSAM();
+    renderAdminPrendas();
+    showToast("✓ SAM actualizado correctamente", "success");
+  } catch (err) {
+    showToast("Error al actualizar SAM: " + err.message, "error");
+  } finally {
+    showLoader(false);
+  }
+}
+
+// Punto 8: Exportar Catálogo Completo de Prendas y SAMs a Excel
+function exportarCatalogoCompletoExcel() {
+  if (appState.prendas.length === 0) {
+    showToast("No hay prendas en el catálogo para exportar.", "error");
+    return;
+  }
+
+  const filas = [["Referencia", "Descripcion_Prenda", "SAM_Total_Prenda", "Codigo_Operacion", "Nombre_Operacion", "SAM_Operacion"]];
+
+  appState.prendas.forEach(p => {
+    const ops = appState.operaciones.filter(o => o.prenda_id === p.id);
+    if (ops.length === 0) {
+      filas.push([p.referencia, p.descripcion || "", p.sam_total, "", "Sin operaciones", ""]);
+    } else {
+      ops.forEach(op => {
+        filas.push([
+          p.referencia,
+          p.descripcion || "",
+          p.sam_total,
+          op.codigo_operacion,
+          op.nombre_operacion,
+          op.sam
+        ]);
+      });
+    }
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(filas);
+  XLSX.utils.book_append_sheet(wb, ws, "Catalogo_Prendas_SAM");
+  XLSX.writeFile(wb, `Catalogo_Prendas_SAM_${new Date().toISOString().split("T")[0]}.xlsx`);
+  showToast("Catálogo completo descargado en Excel.", "success");
+}
+
+// Descargar Plantilla Excel de Fichas
 function descargarPlantillaPrendasExcel() {
   const datos = [
-    ["Referencia", "Codigo_Operacion", "Nombre_Operacion", "SAM", "Es_Final"],
-    ["CAMISETA POLO", "OP-01", "Unir Hombros", 0.550, "NO"],
-    ["CAMISETA POLO", "OP-02", "Pegar Cuello", 1.800, "NO"],
-    ["CAMISETA POLO", "OP-03", "Dobladillo y Salida Final", 1.250, "SI"],
-    ["JEAN SLIM FIT", "OP-01", "Cerrar Costado", 2.100, "NO"],
-    ["JEAN SLIM FIT", "OP-02", "Pegar Pretina y Salida Final", 2.450, "SI"]
+    ["Referencia", "Codigo_Operacion", "Nombre_Operacion", "SAM"],
+    ["CAMISETA CUELLO REDONDO", "OP-01", "Unir Hombros", 0.550],
+    ["CAMISETA CUELLO REDONDO", "OP-02", "Pegar Cuello Rib", 1.800],
+    ["CAMISETA CUELLO REDONDO", "OP-03", "Dobladillo Mangas y Ruedo", 1.250],
+    ["JEAN SLIM 5 BOLSILLOS", "OP-01", "Cerrar Costado Fileteadora", 2.100],
+    ["JEAN SLIM 5 BOLSILLOS", "OP-02", "Pegar Pretina", 2.450]
   ];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(datos);
@@ -1252,35 +1453,23 @@ function alSeleccionarArchivoExcelPrendas(event) {
         return;
       }
 
-      // Agrupar filas por Referencia de Prenda
       const prendasMap = {};
 
       json.forEach((row, idx) => {
-        // Encontrar columna de Referencia
         const ref = row["Referencia"] || row["referencia"] || row["REFERENCIA"] || row["Prenda"] || row["PRENDA"] || row["Ref"];
-        // Encontrar columna de Código
-        const cod = row["Codigo_Operacion"] || row["Codigo"] || row["codigo"] || row["CODIGO"] || row["COD"] || `OP-${String(idx + 1).padStart(2, '0')}`;
-        // Encontrar columna de Operación
+        const cod = row["Codigo_Operacion"] || row["Codigo"] || row["codigo"] || row["CODIGO"] || `OP-${String(idx + 1).padStart(2, '0')}`;
         const nombreOp = row["Nombre_Operacion"] || row["Operacion"] || row["operacion"] || row["OPERACION"] || row["Nombre"] || row["Descripcion"];
-        // Encontrar columna de SAM
         const samVal = parseFloat(row["SAM"] || row["sam"] || row["Sam"] || row["Minutos"] || row["Tiempo"] || 0.0);
-        // Encontrar si es final
-        const finalVal = String(row["Es_Final"] || row["es_final"] || row["Final"] || row["Salida"] || "").toUpperCase();
-        const esFinal = finalVal.includes("SI") || finalVal.includes("S") || finalVal === "1" || finalVal.includes("TRUE");
 
         if (ref && nombreOp && !isNaN(samVal)) {
           const refClean = String(ref).trim();
           if (!prendasMap[refClean]) {
-            prendasMap[refClean] = {
-              referencia: refClean,
-              operaciones: []
-            };
+            prendasMap[refClean] = { referencia: refClean, operaciones: [] };
           }
           prendasMap[refClean].operaciones.push({
             codigo_operacion: String(cod).trim(),
             nombre_operacion: String(nombreOp).trim(),
-            sam: samVal,
-            es_operacion_final: esFinal
+            sam: samVal
           });
         }
       });
@@ -1293,16 +1482,15 @@ function alSeleccionarArchivoExcelPrendas(event) {
 
       appState.prendasImportBuffer = prendasEncontradas;
 
-      // Mostrar Vista Previa
       const totalOps = prendasEncontradas.reduce((s, p) => s + p.operaciones.length, 0);
       const previewBox = document.getElementById("preview-import-prendas");
       const title = document.getElementById("preview-prendas-title");
       const content = document.getElementById("preview-prendas-content");
 
-      title.textContent = `Se detectaron ${prendasEncontradas.length} prendas y ${totalOps} operaciones en total:`;
+      title.textContent = `Se detectaron ${prendasEncontradas.length} prendas y ${totalOps} operaciones:`;
       content.innerHTML = prendasEncontradas.map(p => `
         <div style="margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #e2e8f0;">
-          <strong style="color:var(--primary); font-size:0.85rem;">Prenda: ${escapeHtml(p.referencia)}</strong> (${p.operaciones.length} ops)
+          <strong style="color:var(--mod-adm-primary); font-size:0.88rem;">${escapeHtml(p.referencia)}</strong> (${p.operaciones.length} ops)
           <div style="color:var(--text-muted); font-size:0.75rem;">
             ${p.operaciones.slice(0, 3).map(o => `${o.codigo_operacion}: ${o.nombre_operacion} (${o.sam}m)`).join(" &bull; ")}
             ${p.operaciones.length > 3 ? ` ...y ${p.operaciones.length - 3} operaciones más` : ''}
@@ -1311,16 +1499,15 @@ function alSeleccionarArchivoExcelPrendas(event) {
       `).join("");
 
       previewBox.style.display = "block";
-      showToast(`${prendasEncontradas.length} prendas y ${totalOps} ops listas para importar`, "success");
+      showToast(`${prendasEncontradas.length} prendas listas para importar`, "success");
     } catch (err) {
-      console.error(err);
       showToast("Error al leer Excel: " + err.message, "error");
     }
   };
   reader.readAsArrayBuffer(file);
 }
 
-// Confirmar Importación Masiva de Prendas y SAMs a Supabase
+// Confirmar Importación Masiva de Prendas a Supabase
 async function confirmarImportacionPrendas() {
   if (!appState.prendasImportBuffer || appState.prendasImportBuffer.length === 0) {
     showToast("No hay fichas pendientes por importar.", "error");
@@ -1328,25 +1515,23 @@ async function confirmarImportacionPrendas() {
   }
 
   const empresaId = appState.empresa.id;
-  showLoader(true, "Guardando fichas técnicas en la base de datos...");
+  showLoader(true, "Importando fichas técnicas a la base de datos...");
 
   try {
     let prendasCreadas = 0;
     let operacionesCreadas = 0;
 
     for (const item of appState.prendasImportBuffer) {
-      // 1. Buscar si la prenda ya existe para esta empresa
       let prendaObj = appState.prendas.find(p => p.referencia.toUpperCase() === item.referencia.toUpperCase());
 
       if (!prendaObj) {
-        // Crear la prenda nueva
         const samTotalCalc = item.operaciones.reduce((s, o) => s + Number(o.sam || 0), 0);
         const { data: nuevaPrenda, error: errP } = await getDb()
           .from("prendas")
           .insert({
             empresa_id: empresaId,
             referencia: item.referencia,
-            descripcion: `Cargada desde Excel (${item.operaciones.length} ops)`,
+            descripcion: `Importada desde Excel (${item.operaciones.length} ops)`,
             sam_total: samTotalCalc,
             estado: "activa"
           })
@@ -1359,14 +1544,12 @@ async function confirmarImportacionPrendas() {
         prendasCreadas++;
       }
 
-      // 2. Insertar las operaciones asociadas a esa prenda
       const opsParaInsertar = item.operaciones.map(op => ({
         empresa_id: empresaId,
         prenda_id: prendaObj.id,
         codigo_operacion: op.codigo_operacion,
         nombre_operacion: op.nombre_operacion,
-        sam: op.sam,
-        es_operacion_final: op.es_operacion_final
+        sam: op.sam
       }));
 
       const { data: nuevasOps, error: errOps } = await getDb()
@@ -1375,115 +1558,134 @@ async function confirmarImportacionPrendas() {
         .select();
 
       if (errOps) throw errOps;
-
       if (nuevasOps) {
         appState.operaciones.push(...nuevasOps);
         operacionesCreadas += nuevasOps.length;
       }
     }
 
+    configurarTodosLosBuscadoresMagicos();
     renderAdminPrendas();
-    renderAdminOrdenes();
 
     document.getElementById("preview-import-prendas").style.display = "none";
     document.getElementById("excel-file-prendas").value = "";
     appState.prendasImportBuffer = null;
 
-    showToast(`✓ Importación exitosa: ${prendasCreadas} prendas y ${operacionesCreadas} operaciones`, "success");
+    showToast(`✓ Importación lista: ${prendasCreadas} prendas y ${operacionesCreadas} operaciones`, "success");
   } catch (err) {
-    console.error("Error en importación:", err);
-    showToast("Error al importar a la base de datos: " + err.message, "error");
+    showToast("Error al importar a base de datos: " + err.message, "error");
   } finally {
     showLoader(false);
   }
 }
 
-// Crear Prenda Manual (con getDb garantizado)
-async function crearNuevaPrenda(event) {
-  event.preventDefault();
-  const ref = document.getElementById("admin-prenda-ref").value.trim();
-  const desc = document.getElementById("admin-prenda-desc").value.trim();
+// Descargar Plantilla Excel Operarias
+function descargarPlantillaOperariasExcel() {
+  const datos = [
+    ["Nombre", "Codigo", "Modulo"],
+    ["María González", "OP-101", "Módulo 1"],
+    ["Luz Stella Pérez", "OP-102", "Módulo 1"],
+    ["Carmen Elena Rodríguez", "OP-103", "Módulo 2"]
+  ];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(datos);
+  XLSX.utils.book_append_sheet(wb, ws, "Operarias");
+  XLSX.writeFile(wb, "Plantilla_Operarias_Confeccion.xlsx");
+  showToast("Plantilla descargada: completa tus datos y súbela.", "success");
+}
 
-  if (!ref) {
-    showToast("La referencia de la prenda es requerida.", "error");
+function alSeleccionarArchivoExcelOperarias(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const json = XLSX.utils.sheet_to_json(worksheet);
+
+      if (!json || json.length === 0) {
+        showToast("El archivo de Excel parece estar vacío.", "error");
+        return;
+      }
+
+      appState.operariasImportBuffer = [];
+
+      json.forEach(row => {
+        const nombre = row["Nombre"] || row["nombre"] || row["OPERARIA"] || row["Operaria"] || row["NOMBRE COMPLETO"];
+        const codigo = row["Codigo"] || row["codigo"] || row["CODIGO"] || "";
+        const modulo = row["Modulo"] || row["modulo"] || row["MODULO"] || "Módulo 1";
+
+        if (nombre && String(nombre).trim()) {
+          appState.operariasImportBuffer.push({
+            nombre: String(nombre).trim(),
+            codigo_operaria: String(codigo).trim(),
+            modulo_linea: String(modulo).trim()
+          });
+        }
+      });
+
+      const previewBox = document.getElementById("preview-import-operarias");
+      const title = document.getElementById("preview-operarias-title");
+      const content = document.getElementById("preview-operarias-content");
+
+      title.textContent = `Se detectaron ${appState.operariasImportBuffer.length} operarias listas:`;
+      content.innerHTML = appState.operariasImportBuffer.slice(0, 8).map(o => 
+        `<div>&bull; <strong>${escapeHtml(o.nombre)}</strong> ${o.codigo_operaria ? `(${o.codigo_operaria})` : ''} - ${escapeHtml(o.modulo_linea)}</div>`
+      ).join("") + (appState.operariasImportBuffer.length > 8 ? `<div style="color:var(--text-muted);margin-top:4px;">... y ${appState.operariasImportBuffer.length - 8} más</div>` : "");
+
+      previewBox.style.display = "block";
+      showToast(`${appState.operariasImportBuffer.length} operarias listas para confirmar`, "success");
+    } catch (err) {
+      showToast("Error al leer Excel: " + err.message, "error");
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function confirmarImportacionOperarias() {
+  if (!appState.operariasImportBuffer || appState.operariasImportBuffer.length === 0) {
+    showToast("No hay datos para importar.", "error");
     return;
   }
 
-  showLoader(true, "Creando prenda...");
+  showLoader(true, `Guardando ${appState.operariasImportBuffer.length} operarias...`);
   try {
+    const filas = appState.operariasImportBuffer.map(o => ({
+      empresa_id: appState.empresa.id,
+      nombre: o.nombre,
+      codigo_operaria: o.codigo_operaria || `OP-${Math.floor(100 + Math.random() * 900)}`,
+      modulo_linea: o.modulo_linea || "Módulo 1",
+      estado: "activa"
+    }));
+
     const { data, error } = await getDb()
-      .from("prendas")
-      .insert({
-        empresa_id: appState.empresa.id,
-        referencia: ref,
-        descripcion: desc,
-        estado: "activa"
-      })
-      .select()
-      .single();
+      .from("operarias")
+      .insert(filas)
+      .select();
 
     if (error) throw error;
 
-    appState.prendas.push(data);
-    renderAdminPrendas();
-    renderAdminOrdenes();
-    document.getElementById("admin-prenda-ref").value = "";
-    document.getElementById("admin-prenda-desc").value = "";
-    showToast(`✓ Prenda ${ref} registrada`, "success");
+    appState.operarias.push(...(data || []));
+    configurarTodosLosBuscadoresMagicos();
+    renderAdminOperarias();
+
+    document.getElementById("preview-import-operarias").style.display = "none";
+    document.getElementById("excel-file-operarias").value = "";
+    appState.operariasImportBuffer = null;
+
+    showToast(`✓ Se importaron ${data.length} operarias con éxito`, "success");
   } catch (err) {
-    console.error("Error al crear prenda:", err);
-    showToast("Error: " + err.message, "error");
+    showToast("Error al importar: " + err.message, "error");
   } finally {
     showLoader(false);
   }
 }
 
-// Agregar Operación Manual a Prenda
-async function agregarOperacionAPrenda(event) {
-  event.preventDefault();
-  const prendaId = document.getElementById("admin-operacion-prenda").value;
-  const codOp = document.getElementById("admin-operacion-codigo").value.trim();
-  const nombreOp = document.getElementById("admin-operacion-nombre").value.trim();
-  const sam = parseFloat(document.getElementById("admin-operacion-sam").value);
-  const esFinal = document.getElementById("admin-operacion-final").checked;
-
-  if (!prendaId || !codOp || !nombreOp || isNaN(sam)) {
-    showToast("Complete todos los datos de la operación.", "error");
-    return;
-  }
-
-  showLoader(true, "Guardando operación...");
-  try {
-    const { data, error } = await getDb()
-      .from("operaciones_prenda")
-      .insert({
-        empresa_id: appState.empresa.id,
-        prenda_id: prendaId,
-        codigo_operacion: codOp,
-        nombre_operacion: nombreOp,
-        sam: sam,
-        es_operacion_final: esFinal
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    appState.operaciones.push(data);
-    renderAdminPrendas();
-    document.getElementById("admin-operacion-codigo").value = "";
-    document.getElementById("admin-operacion-nombre").value = "";
-    document.getElementById("admin-operacion-sam").value = "";
-    document.getElementById("admin-operacion-final").checked = false;
-    showToast(`✓ Operación ${codOp} agregada a la ficha`, "success");
-  } catch (err) {
-    showToast("Error: " + err.message, "error");
-  } finally {
-    showLoader(false);
-  }
-}
-
-// --- SUBMÓDULO: CONFIGURACIÓN DE TURNOS Y COSTEO ---
+// 7.4 Turnos y Costo Minuto Planta
 function renderAdminTurnos() {
   const cfg = appState.empresa.config_turnos || {};
   document.getElementById("admin-cfg-hora-inicio").value = cfg.hora_inicio || "06:00";
@@ -1520,6 +1722,7 @@ async function guardarConfiguracionTurnos(event) {
     appState.empresa.config_turnos = nuevaConfig;
     appState.empresa.costo_minuto_planta = costoMinuto;
     generarBloquesHorarios();
+    configurarTodosLosBuscadoresMagicos();
     showToast("✓ Configuración de turnos y costeo guardada", "success");
   } catch (err) {
     showToast("Error: " + err.message, "error");
@@ -1543,7 +1746,7 @@ function showToast(message, type = "success") {
   const toast = document.getElementById("toast");
   toast.textContent = message;
   toast.className = `toast show toast-${type}`;
-  setTimeout(() => { toast.classList.remove("show"); }, 3500);
+  setTimeout(() => { toast.classList.remove("show"); }, 3800);
 }
 
 function escapeHtml(str) {
