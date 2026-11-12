@@ -51,7 +51,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     inicializarFiltrosDashboard();
     configurarTodosLosBuscadoresMagicos();
     
-    if (localStorage.getItem("texflow_is_admin") === "true") {
+    if (localStorage.getItem("retoos_is_admin") === "true") {
       activarModoAdmin(true, false);
     }
 
@@ -123,7 +123,7 @@ async function cargarDatosEmpresa() {
   }
 
   appState.empresa = data;
-  document.getElementById("header-company-name").textContent = data.nombre_empresa;
+  document.getElementById("header-company-name").textContent = `${data.nombre_empresa} • Planta Activa`;
 }
 
 async function cargarMaestros() {
@@ -953,7 +953,7 @@ function validarAdminPin() {
 
 function activarModoAdmin(activar, guardar = true) {
   appState.isAdmin = activar;
-  if (guardar) localStorage.setItem("texflow_is_admin", activar ? "true" : "false");
+  if (guardar) localStorage.setItem("retoos_is_admin", activar ? "true" : "false");
 
   const badge = document.getElementById("header-role-badge");
   if (badge) {

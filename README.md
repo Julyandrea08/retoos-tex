@@ -1,22 +1,20 @@
-# Control de Piso Textil — SaaS Cloud Edition
+# RetoOS Tex — Sistema Operativo de Confección
 
-Sistema de Control de Piso y Eficiencia en Tiempo Real para Confección Textil.
-Migrado de Google Apps Script a Arquitectura Cloud SaaS con **Supabase (PostgreSQL)** y despliegue rápido.
+**RetoOS Tex** es la plataforma industrial SaaS de control de piso, eficiencia en tiempo real, costeo minuto a minuto y gestión de calidad para manufactura y confección textil, desarrollada por **RETOOS**.
 
-## Estructura del Proyecto
-- `index.html`: Aplicación web moderna (Single Page Application) optimizada para tablets de planta y móviles.
-- `css/styles.css`: Estilos visuales industriales con tipografía Outfit y diseño responsivo.
-- `js/supabase-client.js`: Conexión segura con la base de datos en la nube.
-- `js/app.js`: Lógica de negocio, turnos dinámicos, cálculo de eficiencia SAM, tablero y maestros.
-- `gas_backup/`: Respaldo histórico de los archivos originales de Google Apps Script.
+Migrado exitosamente de Google Apps Script a una arquitectura web moderna en la nube con **Supabase (PostgreSQL)**.
 
-## Características Implementadas
-1. **Configurador de Turnos Dinámico**: Detección automática de la hora del turno y adaptación a los horarios específicos de cada planta.
-2. **Módulo de Órdenes de Producción (OP)**: Creación y activación de órdenes desde la app sin tocar hojas de cálculo.
-3. **Módulo Máster de Operarias**: Alta, baja y asignación de personal a módulos/líneas.
-4. **Fichas Técnicas & Operaciones por Prenda**: La app muestra únicamente las operaciones de la prenda asignada a la OP seleccionada.
-5. **Prendas Finalizadas**: Contador en tiempo real del progreso de la OP cuando se registra la operación de salida.
-6. **Separación de Roles (Piso vs. Admin)**: Modo Piso para operarias/supervisores y Modo Administrador protegido con PIN.
-7. **Tablero Multifecha por Orden**: Consulta del progreso acumulado total de una OP o filtro por fecha del día.
-8. **Eficiencia con Totales**: Columnas fijas con Total de Unidades Producidas y % de Eficiencia del Día por operaria.
-9. **Detalle con Totalizador**: Resumen de unidades y SAM ganado por operaria con exportación a Excel / CSV.
+## Módulos Principales
+1. **Módulo de Registro (Piso / Tablet):**
+   - **Avance de Costura:** Registro ágil por puesto de trabajo con cálculo dinámico de SAM.
+   - **Salida de Prendas & Auditoría de Calidad:** Registro de prendas conformes (Primeras) y control de defectos (Segundas/Reproceso) con motivos clasificados.
+2. **Tablero en Vivo (Centro de Control):**
+   - Gráfica de **Barras Apiladas por Hora** con código de color independiente para cada Orden de Producción activa.
+   - Tabla de eficiencia diaria de operarias con total de unidades y porcentaje de rendimiento.
+   - Resumen totalizador de unidades y minutos producidos.
+   - Exportación de reportes a Excel (CSV).
+3. **Módulo Administrador & Ingeniería (Maestros):**
+   - **Órdenes de Producción:** Con **Calculadora de Capacidad y Tiempos de Entrega** en días hábiles.
+   - **Operarias:** Alta, baja y carga masiva desde Excel.
+   - **Prendas & Fichas SAM:** Creación manual, auto-código de operaciones, edición de SAM in-situ, exportación completa e importación masiva desde Excel (.xlsx / .csv).
+   - **Configurador de Turnos y Costeo Minuto Planta.**
