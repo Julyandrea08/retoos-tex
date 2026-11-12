@@ -1281,6 +1281,17 @@ textarea {
   background: #fee2e2;
 }
 
+.btn-strip-action.btn-action-delete {
+  color: #991b1b;
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+.btn-strip-action.btn-action-delete:hover {
+  background: #ffe4e6;
+  border-color: #f43f5e;
+  color: #881337;
+}
+
 /* ==============================================================================
    15. MÓDULO DE ANALÍTICA GERENCIAL & BI (ESTILO LOOKER STUDIO)
    ============================================================================== */

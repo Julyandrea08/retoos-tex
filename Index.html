@@ -520,7 +520,54 @@
 
         </div>
 
-        <!-- PANEL DE AUDITORÍA & CONTROL DE CALIDAD (DEFECTOS POR FECHA) -->
+        <!-- GRÁFICO PRINCIPAL: EFICIENCIA POR OPERARIA (BARRAS CON LÍNEA META 85%) -->
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="bar-chart-2" class="title-icon" style="color:var(--mod-ger-primary);"></i>
+              <span>Eficiencia por Operario (Meta 85%)</span>
+            </div>
+            <span style="font-size:0.75rem; font-weight:700; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:3px 8px; border-radius:6px;">
+              Línea Guía: 85% Meta
+            </span>
+          </div>
+          <div style="position:relative; height:320px; width:100%;">
+            <canvas id="chart-ger-operarias"></canvas>
+          </div>
+        </div>
+
+        <!-- GRID 2 COLUMNAS: TENDENCIA DIARIA + SEMÁFORO DE DESEMPEÑO -->
+        <div class="grid-responsive-2" style="margin-bottom: 24px;">
+          
+          <!-- Tendencia Diaria -->
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="trending-up" class="title-icon" style="color:#d97706;"></i>
+                <span>Eficiencia Diaria (Evolución)</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-tendencia"></canvas>
+            </div>
+          </div>
+
+          <!-- Semáforo de Desempeño (Dona) -->
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="pie-chart" class="title-icon" style="color:#059669;"></i>
+                <span>Semáforo de Desempeño</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-semaforo"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- PANEL DE AUDITORÍA & CONTROL DE CALIDAD (DEFECTOS POR FECHA - AL FINAL) -->
         <div class="card" style="margin-bottom: 24px; border-left: 4px solid var(--danger);">
           <div class="card-title">
             <div class="card-title-left">
@@ -558,53 +605,6 @@
           </div>
         </div>
 
-        <!-- GRÁFICO PRINCIPAL: EFICIENCIA POR OPERARIA (BARRAS CON LÍNEA META 85%) -->
-        <div class="card" style="margin-bottom: 24px;">
-          <div class="card-title">
-            <div class="card-title-left">
-              <i data-lucide="bar-chart-2" class="title-icon" style="color:var(--mod-ger-primary);"></i>
-              <span>Eficiencia por Operario (Meta 85%)</span>
-            </div>
-            <span style="font-size:0.75rem; font-weight:700; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:3px 8px; border-radius:6px;">
-              Línea Guía: 85% Meta
-            </span>
-          </div>
-          <div style="position:relative; height:320px; width:100%;">
-            <canvas id="chart-ger-operarias"></canvas>
-          </div>
-        </div>
-
-        <!-- GRID 2 COLUMNAS: TENDENCIA DIARIA + SEMÁFORO DE DESEMPEÑO -->
-        <div class="grid-responsive-2">
-          
-          <!-- Tendencia Diaria -->
-          <div class="card">
-            <div class="card-title">
-              <div class="card-title-left">
-                <i data-lucide="trending-up" class="title-icon" style="color:#d97706;"></i>
-                <span>Eficiencia Diaria (Evolución)</span>
-              </div>
-            </div>
-            <div style="position:relative; height:260px; width:100%;">
-              <canvas id="chart-ger-tendencia"></canvas>
-            </div>
-          </div>
-
-          <!-- Semáforo de Desempeño (Dona) -->
-          <div class="card">
-            <div class="card-title">
-              <div class="card-title-left">
-                <i data-lucide="pie-chart" class="title-icon" style="color:#059669;"></i>
-                <span>Semáforo de Desempeño</span>
-              </div>
-            </div>
-            <div style="position:relative; height:260px; width:100%;">
-              <canvas id="chart-ger-semaforo"></canvas>
-            </div>
-          </div>
-
-        </div>
-
       </div>
 
       <!-- ============================================================ -->
@@ -639,7 +639,12 @@
               <i data-lucide="layers" class="title-icon" style="color:var(--mod-ger-primary);"></i>
               <span>Control de Órdenes y Tiempos de Producción</span>
             </div>
-            <span id="badge-total-ordenes-ger" style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">0 órdenes</span>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <span id="badge-total-ordenes-ger" style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">0 órdenes</span>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="descargarHistoricoOrdenesExcel()" style="height:32px; font-size:0.8rem; font-weight:600;">
+                <i data-lucide="download"></i> Descargar Histórico Excel
+              </button>
+            </div>
           </div>
 
           <div class="table-responsive">
@@ -830,16 +835,51 @@
           </button>
         </form>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
-          <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
-            <i data-lucide="list" style="width:18px;height:18px;color:var(--mod-adm-primary);"></i> Órdenes Registradas
-          </h4>
-          <div style="position:relative; width:280px; max-width:100%;">
-            <input type="text" id="admin-search-ordenes" placeholder="🔍 Buscar OP o referencia..." 
-                   oninput="filtrarListaAdminOrdenes(this.value)" 
-                   style="height:36px; padding:0 12px; font-size:0.84rem; border-radius:8px; border:1px solid var(--border-color); width:100%;">
+        <!-- Barra de Búsqueda, Filtro por Fechas y Descarga de Histórico de Órdenes -->
+        <div style="background:var(--bg-app); border:1.5px solid var(--border-color); border-radius:12px; padding:14px 18px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+            <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
+              <i data-lucide="list" style="width:18px;height:18px;color:var(--mod-adm-primary);"></i> Órdenes Registradas
+              <span id="badge-total-ordenes-admin" style="font-size:0.75rem; font-weight:600; background:#eef2ff; color:#4f46e5; padding:2px 8px; border-radius:9999px;">0 órdenes</span>
+            </h4>
+            
+            <button type="button" class="btn btn-secondary btn-sm" onclick="descargarHistoricoOrdenesExcel()" style="height:36px; font-weight:700; color:var(--mod-adm-primary); border-color:#c7d2fe; background:#eef2ff;">
+              <i data-lucide="file-spreadsheet"></i> Descargar Histórico de Órdenes (Excel)
+            </button>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:5px;">
+                <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted);"><i data-lucide="calendar" style="width:13px;height:13px;display:inline;"></i> Desde:</span>
+                <input type="date" id="admin-ordenes-filtro-desde" onchange="filtrarListaAdminOrdenes()" style="height:34px; padding:0 8px; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:#fff;">
+              </div>
+              <div style="display:flex; align-items:center; gap:5px;">
+                <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted);"><i data-lucide="calendar" style="width:13px;height:13px;display:inline;"></i> Hasta:</span>
+                <input type="date" id="admin-ordenes-filtro-hasta" onchange="filtrarListaAdminOrdenes()" style="height:34px; padding:0 8px; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:#fff;">
+              </div>
+              <div style="display:flex; align-items:center; gap:5px;">
+                <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted);"><i data-lucide="filter" style="width:13px;height:13px;display:inline;"></i> Estado:</span>
+                <select id="admin-ordenes-filtro-estado" onchange="filtrarListaAdminOrdenes()" style="height:34px; padding:0 10px; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:#fff;">
+                  <option value="todos">Todos los estados</option>
+                  <option value="activa">Activas</option>
+                  <option value="pausada">Pausadas</option>
+                  <option value="finalizada">Finalizadas</option>
+                </select>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="limpiarFiltrosAdminOrdenes()" style="height:34px; padding:0 10px; font-size:0.78rem;">
+                <i data-lucide="rotate-ccw" style="width:13px;height:13px;"></i> Limpiar
+              </button>
+            </div>
+
+            <div style="position:relative; width:240px; max-width:100%;">
+              <input type="text" id="admin-search-ordenes" placeholder="🔍 Buscar OP o referencia..." 
+                     oninput="filtrarListaAdminOrdenes()" 
+                     style="height:34px; padding:0 10px; font-size:0.82rem; border-radius:6px; border:1px solid var(--border-color); width:100%;">
+            </div>
           </div>
         </div>
+
         <div id="admin-ordenes-list" class="admin-compact-list"></div>
       </div>
 
@@ -915,11 +955,17 @@
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
           <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
             <i data-lucide="users" style="width:18px;height:18px;color:#0284c7;"></i> Personal Registrado
+            <span id="badge-total-operarias-admin" style="font-size:0.75rem; font-weight:600; background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:9999px;">0 operarias</span>
           </h4>
-          <div style="position:relative; width:280px; max-width:100%;">
-            <input type="text" id="admin-search-operarias" placeholder="🔍 Buscar operaria o módulo..." 
-                   oninput="filtrarListaAdminOperarias(this.value)" 
-                   style="height:36px; padding:0 12px; font-size:0.84rem; border-radius:8px; border:1px solid var(--border-color); width:100%;">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="position:relative; width:240px; max-width:100%;">
+              <input type="text" id="admin-search-operarias" placeholder="🔍 Buscar operaria o módulo..." 
+                     oninput="filtrarListaAdminOperarias(this.value)" 
+                     style="height:36px; padding:0 12px; font-size:0.84rem; border-radius:8px; border:1px solid var(--border-color); width:100%;">
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="exportarListadoOperariasExcel()" style="height:36px; font-weight:700; color:#0284c7; border-color:#bae6fd; background:#f0f9ff;">
+              <i data-lucide="file-spreadsheet"></i> Exportar Personal (Excel)
+            </button>
           </div>
         </div>
         <div id="admin-operarias-list" class="admin-compact-list"></div>

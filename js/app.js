@@ -1108,23 +1108,57 @@ function calcularProyeccionEntregaEnForm() {
   document.getElementById("cap-calc-dias").textContent = `${diasEstimados} días hábiles`;
 }
 
-// 7.1 Órdenes de Producción (Listado Horizontal Compacto - 1 Sola Fila)
-function renderAdminOrdenes(filtroTexto = "") {
+// 7.1 Órdenes de Producción (Listado Horizontal Compacto con Filtro por Fechas y Estado)
+function renderAdminOrdenes() {
   const list = document.getElementById("admin-ordenes-list");
   if (!list) return;
   list.innerHTML = "";
 
-  let ordenes = appState.ordenes;
-  if (filtroTexto && filtroTexto.trim()) {
-    const q = filtroTexto.trim().toLowerCase();
+  const q = document.getElementById("admin-search-ordenes")?.value.trim().toLowerCase() || "";
+  const fDesde = document.getElementById("admin-ordenes-filtro-desde")?.value || "";
+  const fHasta = document.getElementById("admin-ordenes-filtro-hasta")?.value || "";
+  const estadoFiltro = document.getElementById("admin-ordenes-filtro-estado")?.value || "todos";
+
+  let ordenes = [...appState.ordenes];
+
+  // Filtro por texto (OP o referencia)
+  if (q) {
     ordenes = ordenes.filter(ord => 
       (ord.numero_op && ord.numero_op.toLowerCase().includes(q)) ||
       (ord.prendas?.referencia && ord.prendas.referencia.toLowerCase().includes(q))
     );
   }
 
+  // Filtro por estado
+  if (estadoFiltro !== "todos") {
+    ordenes = ordenes.filter(ord => (ord.estado || "activa") === estadoFiltro);
+  }
+
+  // Filtro por fecha inicial (created_at)
+  if (fDesde) {
+    ordenes = ordenes.filter(ord => {
+      if (!ord.created_at) return false;
+      const f = ord.created_at.split("T")[0];
+      return f >= fDesde;
+    });
+  }
+
+  // Filtro por fecha final (created_at)
+  if (fHasta) {
+    ordenes = ordenes.filter(ord => {
+      if (!ord.created_at) return false;
+      const f = ord.created_at.split("T")[0];
+      return f <= fHasta;
+    });
+  }
+
+  const badgeTotal = document.getElementById("badge-total-ordenes-admin");
+  if (badgeTotal) {
+    badgeTotal.textContent = `${ordenes.length} de ${appState.ordenes.length} órdenes`;
+  }
+
   if (ordenes.length === 0) {
-    list.innerHTML = '<p class="empty-message">No se encontraron órdenes registradas.</p>';
+    list.innerHTML = '<p class="empty-message">No se encontraron órdenes registradas para el filtro seleccionado.</p>';
     return;
   }
 
@@ -1135,6 +1169,7 @@ function renderAdminOrdenes(filtroTexto = "") {
     const minTotales = (meta * samTotal).toFixed(0);
     const pct = meta > 0 ? Math.round((terminadas / meta) * 100) : 0;
     const estado = ord.estado || "activa";
+    const fechaCreacion = ord.created_at ? ord.created_at.split("T")[0] : "";
 
     list.insertAdjacentHTML("beforeend", `
       <div class="admin-strip-row">
@@ -1142,6 +1177,7 @@ function renderAdminOrdenes(filtroTexto = "") {
           <span class="admin-strip-badge">[${escapeHtml(ord.numero_op)}]</span>
           <span class="admin-strip-title">${escapeHtml(ord.prendas?.referencia || "Sin prenda")}</span>
           <div class="admin-strip-metrics">
+            ${fechaCreacion ? `<span>&bull; Creada: <strong>${fechaCreacion}</strong></span>` : ''}
             <span>&bull; Meta: <strong>${meta.toLocaleString()}</strong></span>
             <span>&bull; Uds: <strong>${terminadas.toLocaleString()}</strong> (${pct}%)</span>
             <span>&bull; SAM: <strong>${samTotal} min</strong></span>
@@ -1172,8 +1208,173 @@ function renderAdminOrdenes(filtroTexto = "") {
   lucide.createIcons();
 }
 
-function filtrarListaAdminOrdenes(val) {
-  renderAdminOrdenes(val);
+function filtrarListaAdminOrdenes() {
+  renderAdminOrdenes();
+}
+
+function limpiarFiltrosAdminOrdenes() {
+  const d = document.getElementById("admin-ordenes-filtro-desde");
+  const h = document.getElementById("admin-ordenes-filtro-hasta");
+  const e = document.getElementById("admin-ordenes-filtro-estado");
+  const s = document.getElementById("admin-search-ordenes");
+  if (d) d.value = "";
+  if (h) h.value = "";
+  if (e) e.value = "todos";
+  if (s) s.value = "";
+  renderAdminOrdenes();
+}
+
+// Exportar Histórico de Órdenes a Excel con Filtros de Fecha y Calidad
+function descargarHistoricoOrdenesExcel() {
+  try {
+    const q = document.getElementById("admin-search-ordenes")?.value.trim().toLowerCase() || "";
+    const fDesde = document.getElementById("admin-ordenes-filtro-desde")?.value || "";
+    const fHasta = document.getElementById("admin-ordenes-filtro-hasta")?.value || "";
+    const estadoFiltro = document.getElementById("admin-ordenes-filtro-estado")?.value || "todos";
+
+    let ordenes = [...appState.ordenes];
+
+    if (q) {
+      ordenes = ordenes.filter(ord => 
+        (ord.numero_op && ord.numero_op.toLowerCase().includes(q)) ||
+        (ord.prendas?.referencia && ord.prendas.referencia.toLowerCase().includes(q))
+      );
+    }
+    if (estadoFiltro !== "todos") {
+      ordenes = ordenes.filter(ord => (ord.estado || "activa") === estadoFiltro);
+    }
+    if (fDesde) {
+      ordenes = ordenes.filter(ord => ord.created_at && ord.created_at.split("T")[0] >= fDesde);
+    }
+    if (fHasta) {
+      ordenes = ordenes.filter(ord => ord.created_at && ord.created_at.split("T")[0] <= fHasta);
+    }
+
+    if (ordenes.length === 0) {
+      showToast("No hay órdenes que coincidan con los filtros para exportar.", "warning");
+      return;
+    }
+
+    // Mapear defectos por orden
+    const defectosPorOrden = {};
+    if (appState.registrosTerminadas && appState.registrosTerminadas.length > 0) {
+      appState.registrosTerminadas.forEach(t => {
+        const oid = t.orden_id;
+        if (!oid) return;
+        if (!defectosPorOrden[oid]) {
+          defectosPorOrden[oid] = { primeras: 0, defectos: 0 };
+        }
+        defectosPorOrden[oid].primeras += Number(t.cantidad_primeras || 0);
+        defectosPorOrden[oid].defectos += Number(t.cantidad_defectos || 0);
+      });
+    }
+
+    const ahora = new Date();
+    const filtroInfo = [
+      fDesde ? `Desde: ${fDesde}` : null,
+      fHasta ? `Hasta: ${fHasta}` : null,
+      estadoFiltro !== "todos" ? `Estado: ${estadoFiltro}` : null
+    ].filter(Boolean).join(" | ") || "Histórico Completo";
+
+    const filas = [
+      ["RETOOS TEX - HISTÓRICO DE ÓRDENES DE PRODUCCIÓN"],
+      ["Empresa:", appState.empresa?.nombre || "RetoOS Tex"],
+      ["Filtro Aplicado:", filtroInfo],
+      ["Fecha de Reporte:", ahora.toLocaleString()],
+      ["Total Órdenes Exportadas:", ordenes.length],
+      [],
+      [
+        "Número OP",
+        "Referencia Prenda",
+        "Estado",
+        "Fecha Creación",
+        "Días Fabricación",
+        "Cantidad Programada (Meta)",
+        "Prendas Terminadas (1ra)",
+        "Prendas Defectuosas",
+        "Total Inspeccionadas",
+        "% Merma / Defecto",
+        "% Avance Meta",
+        "SAM Prenda (min)",
+        "Minutos SAM Requeridos",
+        "Minutos SAM Ganados"
+      ]
+    ];
+
+    let totalMeta = 0;
+    let totalTerm = 0;
+    let totalDef = 0;
+
+    ordenes.forEach(ord => {
+      const meta = Number(ord.cantidad_programada || 0);
+      const term = Number(ord.prendas_terminadas || 0);
+      const sam = Number(ord.prendas?.sam_total || 0);
+      const minReq = meta * sam;
+      const minGan = term * sam;
+      const pctAvance = meta > 0 ? ((term / meta) * 100).toFixed(1) + "%" : "0.0%";
+
+      const stats = defectosPorOrden[ord.id] || { primeras: 0, defectos: 0 };
+      const defUds = stats.defectos;
+      const audTotal = stats.primeras + stats.defectos;
+      const pctMerma = audTotal > 0 ? ((defUds / audTotal) * 100).toFixed(1) + "%" : "0.0%";
+
+      let dias = 1;
+      let fechaStr = "";
+      if (ord.created_at) {
+        fechaStr = ord.created_at.split("T")[0];
+        const diffMs = ahora - new Date(ord.created_at);
+        dias = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      }
+
+      totalMeta += meta;
+      totalTerm += term;
+      totalDef += defUds;
+
+      filas.push([
+        ord.numero_op,
+        ord.prendas?.referencia || "Sin ref",
+        (ord.estado || "activa").toUpperCase(),
+        fechaStr,
+        dias,
+        meta,
+        term,
+        defUds,
+        audTotal,
+        pctMerma,
+        pctAvance,
+        sam,
+        minReq,
+        minGan
+      ]);
+    });
+
+    // Fila resumen de totales
+    filas.push([]);
+    filas.push([
+      "TOTALES CONSOLIDADOS",
+      "",
+      "",
+      "",
+      "",
+      totalMeta,
+      totalTerm,
+      totalDef,
+      totalTerm + totalDef,
+      totalTerm + totalDef > 0 ? ((totalDef / (totalTerm + totalDef)) * 100).toFixed(1) + "%" : "0.0%",
+      totalMeta > 0 ? ((totalTerm / totalMeta) * 100).toFixed(1) + "%" : "0.0%"
+    ]);
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(filas);
+    XLSX.utils.book_append_sheet(wb, ws, "Historico_OP");
+
+    const hoyStr = ahora.toISOString().split("T")[0];
+    XLSX.writeFile(wb, `Historico_Ordenes_RetoOS_${hoyStr}.xlsx`);
+    showToast("✓ Histórico de órdenes exportado exitosamente a Excel", "success");
+  } catch (err) {
+    console.error("Error al exportar histórico de órdenes:", err);
+    showToast("Error al exportar histórico: " + err.message, "error");
+  }
 }
 
 async function crearNuevaOP(event) {
@@ -1243,6 +1444,11 @@ function renderAdminOperarias(filtroTexto = "") {
   if (!list) return;
   list.innerHTML = "";
 
+  const badgeTot = document.getElementById("badge-total-operarias-admin");
+  if (badgeTot) {
+    badgeTot.textContent = `${appState.operarias.length} operarias`;
+  }
+
   let operarias = appState.operarias;
   if (filtroTexto && filtroTexto.trim()) {
     const q = filtroTexto.trim().toLowerCase();
@@ -1274,10 +1480,16 @@ function renderAdminOperarias(filtroTexto = "") {
           <span class="admin-strip-status ${op.estado}">${op.estado.toUpperCase()}</span>
         </div>
         <div class="admin-strip-actions">
-          <button class="btn-strip-action ${esActiva ? 'btn-action-danger' : 'btn-action-activate'}" 
-                  onclick="toggleEstadoOperaria('${op.id}', '${esActiva ? 'inactiva' : 'activa'}')">
+          <button class="btn-strip-action ${esActiva ? 'btn-action-pause' : 'btn-action-activate'}" 
+                  onclick="toggleEstadoOperaria('${op.id}', '${esActiva ? 'inactiva' : 'activa'}')"
+                  title="${esActiva ? 'Inactivar temporalmente' : 'Reactivar operaria'}">
             <i data-lucide="${esActiva ? 'user-x' : 'user-check'}" style="width:13px;height:13px;"></i> 
             ${esActiva ? 'Inactivar' : 'Reactivar'}
+          </button>
+          <button class="btn-strip-action btn-action-delete" 
+                  onclick="eliminarOperaria('${op.id}', '${escapeHtml(op.nombre)}')"
+                  title="Eliminar operaria que ya no labora">
+            <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Eliminar
           </button>
         </div>
       </div>
@@ -1288,6 +1500,89 @@ function renderAdminOperarias(filtroTexto = "") {
 
 function filtrarListaAdminOperarias(val) {
   renderAdminOperarias(val);
+}
+
+// Eliminar Operaria con Protección de Integridad
+async function eliminarOperaria(id, nombre) {
+  const seguro = confirm(
+    `¿Deseas eliminar a la operaria "${nombre}" del sistema?\n\n` +
+    `Si ya no labora en la empresa, esta acción la retirará del listado y de la asignación de puestos.\n\n` +
+    `Nota: Si posee registros históricos de producción en turnos pasados, el sistema la cambiará automáticamente a INACTIVA para proteger las auditorías.`
+  );
+  if (!seguro) return;
+
+  showLoader(true, "Eliminando operaria...");
+  try {
+    const { error } = await getDb()
+      .from("operarias")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      // Violación de clave foránea en PostgreSQL (registros_produccion)
+      if (error.code === "23503" || (error.message && error.message.toLowerCase().includes("foreign key"))) {
+        showToast(`La operaria tiene historial de producción registrado. Ha sido cambiada a INACTIVA para no afectar los reportes históricos.`, "warning");
+        await toggleEstadoOperaria(id, "inactiva");
+        return;
+      }
+      throw error;
+    }
+
+    appState.operarias = appState.operarias.filter(o => o.id !== id);
+    configurarTodosLosBuscadoresMagicos();
+    renderAdminOperarias();
+    showToast(`✓ Operaria "${nombre}" eliminada exitosamente del sistema.`, "success");
+  } catch (err) {
+    console.error("Error al eliminar operaria:", err);
+    showToast("Error al eliminar operaria: " + err.message, "error");
+  } finally {
+    showLoader(false);
+  }
+}
+
+// Exportar Listado Maestro de Operarias a Excel
+function exportarListadoOperariasExcel() {
+  try {
+    if (!appState.operarias || appState.operarias.length === 0) {
+      showToast("No hay operarias registradas para exportar.", "warning");
+      return;
+    }
+
+    const ahora = new Date();
+    const activas = appState.operarias.filter(o => o.estado === "activa").length;
+    const inactivas = appState.operarias.filter(o => o.estado === "inactiva").length;
+
+    const filas = [
+      ["RETOOS TEX - LISTADO MAESTRO DE PERSONAL Y OPERARIAS"],
+      ["Empresa:", appState.empresa?.nombre || "RetoOS Tex"],
+      ["Fecha de Exportación:", ahora.toLocaleString()],
+      ["Total Operarias:", appState.operarias.length],
+      ["Activas:", activas, "Inactivas:", inactivas],
+      [],
+      ["Código / Cédula", "Nombre Completo", "Módulo / Línea", "Estado", "Fecha Registro"]
+    ];
+
+    appState.operarias.forEach(op => {
+      filas.push([
+        op.codigo_operaria || "S/C",
+        op.nombre || "",
+        op.modulo_linea || "Línea 1",
+        (op.estado || "activa").toUpperCase(),
+        op.created_at ? op.created_at.split("T")[0] : ""
+      ]);
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(filas);
+    XLSX.utils.book_append_sheet(wb, ws, "Personal_Operarias");
+
+    const hoyStr = ahora.toISOString().split("T")[0];
+    XLSX.writeFile(wb, `Personal_Operarias_RetoOS_${hoyStr}.xlsx`);
+    showToast("✓ Listado de operarias exportado a Excel exitosamente", "success");
+  } catch (err) {
+    console.error("Error al exportar listado de operarias:", err);
+    showToast("Error al exportar operarias: " + err.message, "error");
+  }
 }
 
 async function crearNuevaOperaria(event) {
