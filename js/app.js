@@ -55,6 +55,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       activarModoAdmin(true, false);
     }
 
+    // Listener para botón flotante "Volver Arriba" en Admin
+    window.addEventListener("scroll", () => {
+      const btnFloat = document.getElementById("btn-floating-top");
+      if (!btnFloat) return;
+      if (window.scrollY > 350 && document.body.classList.contains("theme-admin")) {
+        btnFloat.classList.add("visible");
+      } else {
+        btnFloat.classList.remove("visible");
+      }
+    });
+
     switchView("registro");
     lucide.createIcons();
     showLoader(false);
@@ -88,7 +99,15 @@ function switchView(viewId) {
   document.body.className = "theme-" + viewId;
 
   if (viewId === "dashboard") {
-    actualizarDashboard();
+    // Rendimiento instantáneo: si ya existen registros en memoria, pintar de inmediato (0ms lag)
+    const ordenFiltro = document.getElementById("dash-filter-orden")?.value || "";
+    renderizarProgresoOrdenes(ordenFiltro);
+    renderizarBarrasApiladasHorarias(ordenFiltro);
+    renderizarTablaEficiencias();
+    renderizarDetalleOperaciones();
+
+    // Actualización silenciosa en segundo plano sin congelar la pantalla
+    actualizarDashboard(false);
   } else if (viewId === "admin") {
     cargarDatosAdmin();
   }
@@ -559,15 +578,23 @@ function inicializarFiltrosDashboard() {
   document.getElementById("dash-filter-date").value = hoy;
 }
 
-async function actualizarDashboard() {
-  showLoader(true, "Actualizando tablero...");
-  try {
-    const fechaFiltro = document.getElementById("dash-filter-date").value;
-    const ordenFiltro = document.getElementById("dash-filter-orden").value;
-    const modoHistorico = document.getElementById("dash-filter-all-dates").checked;
-    const empresaId = appState.empresa.id;
+async function actualizarDashboard(mostrarOverlay = false) {
+  const btnSync = document.getElementById("btn-sync");
+  if (btnSync) btnSync.classList.add("spinning");
 
-    // 1. Cargar Registros de Costura
+  if (mostrarOverlay) {
+    showLoader(true, "Actualizando tablero...");
+  }
+
+  try {
+    const fechaFiltro = document.getElementById("dash-filter-date")?.value;
+    const ordenFiltro = document.getElementById("dash-filter-orden")?.value;
+    const modoHistorico = document.getElementById("dash-filter-all-dates")?.checked;
+    const empresaId = appState.empresa?.id;
+
+    if (!empresaId) return;
+
+    // 1. Preparar consulta de Costura
     let queryCostura = getDb()
       .from("registros_produccion")
       .select(`
@@ -588,30 +615,37 @@ async function actualizarDashboard() {
       queryCostura = queryCostura.eq("orden_id", ordenFiltro);
     }
 
-    const { data: registrosC, error: errC } = await queryCostura.order("hora_turno", { ascending: true });
-    if (errC) throw errC;
-    appState.registrosCostura = registrosC || [];
+    // 2. Preparar consulta de Prendas Terminadas
+    let queryTerm = getDb()
+      .from("registros_prendas_terminadas")
+      .select("*")
+      .eq("empresa_id", empresaId);
 
-    // 2. Cargar Registros de Prendas Terminadas
-    try {
-      let queryTerm = getDb()
-        .from("registros_prendas_terminadas")
-        .select("*")
-        .eq("empresa_id", empresaId);
-
-      if (!modoHistorico && fechaFiltro) {
-        queryTerm = queryTerm.eq("fecha", fechaFiltro);
-      }
-      if (ordenFiltro) {
-        queryTerm = queryTerm.eq("orden_id", ordenFiltro);
-      }
-      const { data: registrosT } = await queryTerm;
-      if (registrosT) appState.registrosTerminadas = registrosT;
-    } catch (e) {
-      console.warn("No se pudo cargar registros_prendas_terminadas desde BD:", e);
+    if (!modoHistorico && fechaFiltro) {
+      queryTerm = queryTerm.eq("fecha", fechaFiltro);
+    }
+    if (ordenFiltro) {
+      queryTerm = queryTerm.eq("orden_id", ordenFiltro);
     }
 
-    // 3. Renderizar Componentes del Tablero
+    // 3. Ejecutar AMBAS consultas EN PARALELO (Promise.all) para máxima velocidad
+    const [resCostura, resTerm] = await Promise.all([
+      queryCostura.order("hora_turno", { ascending: true }),
+      queryTerm.catch(e => {
+        console.warn("Tabla registros_prendas_terminadas no accesible:", e);
+        return { data: null };
+      })
+    ]);
+
+    if (resCostura && !resCostura.error) {
+      appState.registrosCostura = resCostura.data || [];
+    }
+
+    if (resTerm && resTerm.data) {
+      appState.registrosTerminadas = resTerm.data;
+    }
+
+    // 4. Renderizar Componentes del Tablero con datos actualizados
     renderizarProgresoOrdenes(ordenFiltro);
     renderizarBarrasApiladasHorarias(ordenFiltro); // Punto 6
     renderizarTablaEficiencias();                   // Punto 8
@@ -621,7 +655,8 @@ async function actualizarDashboard() {
     console.error("Error al actualizar dashboard:", error);
     showToast("Error al cargar dashboard: " + error.message, "error");
   } finally {
-    showLoader(false);
+    if (btnSync) btnSync.classList.remove("spinning");
+    if (mostrarOverlay) showLoader(false);
     lucide.createIcons();
   }
 }
@@ -974,12 +1009,21 @@ function salirModoAdmin() {
   showToast("Regresando a Modo Piso", "success");
 }
 
-function switchAdminTab(tabId) {
-  document.querySelectorAll(".admin-pane").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".admin-subnav-btn").forEach(b => b.classList.remove("active"));
+// Navegación con Scroll Suave e Iluminación Bento a la sección elegida
+function irASeccionAdmin(seccionId) {
+  const elem = document.getElementById(seccionId);
+  if (!elem) return;
+  elem.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (elem.classList.contains("admin-section-box")) {
+    elem.classList.add("highlight");
+    setTimeout(() => {
+      elem.classList.remove("highlight");
+    }, 1800);
+  }
+}
 
-  document.getElementById(`admin-pane-${tabId}`).classList.add("active");
-  lucide.createIcons();
+function switchAdminTab(tabId) {
+  irASeccionAdmin("seccion-admin-" + tabId);
 }
 
 async function cargarDatosAdmin() {

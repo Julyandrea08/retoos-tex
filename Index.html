@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>RetoOS Tex — Sistema Operativo de Confección | RETOOS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#1e1b4b">
+  <meta name="description" content="RetoOS Tex — Sistema Operativo de Control de Piso, Eficiencia y Costeo para Confección Textil por RETOOS">
+
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Supabase JS Client Oficial -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- SheetJS para Importar y Exportar Excel (.xlsx / .csv) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+  <!-- Estilos de la Aplicación -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="theme-registro">
+
+  <!-- ============================================================== -->
+  <!-- HEADER INDUSTRIAL CON NAVEGACIÓN SUPERIOR (Puntos 1 y 7)       -->
+  <!-- ============================================================== -->
+  <header class="app-header">
+    <div class="header-container">
+      
+      <!-- Logo y Nombre de la Empresa -->
+      <div class="logo-area">
+        <div class="logo-icon"><i data-lucide="scissors"></i></div>
+        <div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h1 id="header-product-brand" style="font-size:1.2rem; font-weight:800; letter-spacing:0.5px; color:#818cf8; margin:0;">
+              RetoOS <span style="color:#ffffff; font-weight:400;">Tex</span>
+            </h1>
+            <span style="font-size:0.68rem; background:rgba(129,140,248,0.25); color:#c7d2fe; padding:2px 7px; border-radius:6px; font-weight:700; border:1px solid rgba(129,140,248,0.35);">
+              by RETOOS
+            </span>
+          </div>
+          <p id="header-company-name" style="font-size:0.75rem; color:rgba(255,255,255,0.7); font-weight:400; margin:0;">
+            Sistema Operativo de Confección
+          </p>
+        </div>
+      </div>
+
+      <!-- Navegación de Módulos Superior (Punto 1) -->
+      <nav class="top-nav">
+        <button id="nav-btn-registro" class="top-nav-btn active" data-view="registro" onclick="switchView('registro')">
+          <i data-lucide="clipboard-edit"></i>
+          <span>Registrar Avance</span>
+        </button>
+        <button id="nav-btn-dashboard" class="top-nav-btn" data-view="dashboard" onclick="switchView('dashboard')">
+          <i data-lucide="bar-chart-3"></i>
+          <span>Tablero en Vivo</span>
+        </button>
+        <button id="nav-btn-admin" class="top-nav-btn" data-view="admin" onclick="switchView('admin')">
+          <i data-lucide="shield-check"></i>
+          <span>Admin / Maestros</span>
+        </button>
+      </nav>
+
+      <!-- Estado de Rol y Sincronización -->
+      <div class="header-right">
+        <span id="header-role-badge" class="badge-role badge-role-floor" onclick="switchView('admin')" title="Hacer clic para cambiar modo">
+          <i data-lucide="tablet"></i> Piso
+        </span>
+        <button id="btn-sync" class="btn-icon-only" onclick="actualizarDashboard(true)" title="Sincronizar Datos">
+          <i data-lucide="rotate-cw"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- NOTIFICACIÓN FLOTANTE (TOAST) -->
+  <div id="toast" class="toast"></div>
+
+  <!-- PANTALLA DE CARGA (LOADER) -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loader"></div>
+    <p id="loading-text" style="font-weight: 600; color: var(--text-main);">Conectando con la nube...</p>
+  </div>
+
+  <!-- CONTENEDOR PRINCIPAL DE PANTALLAS (100% Responsivo) -->
+  <main class="app-main">
+
+    <!-- ============================================================== -->
+    <!-- MÓDULO 1: REGISTRO DE AVANCE (PISO / TABLET / COMPUTADOR)      -->
+    <!-- ============================================================== -->
+    <section id="view-registro" class="app-view active">
+      <div class="card" style="max-width: 900px; margin: 0 auto; width: 100%;">
+        
+        <!-- Pestañas de Alternancia: Costura vs Fin de Línea (Punto 2) -->
+        <div class="reg-mode-nav">
+          <button id="btn-subreg-costura" class="reg-mode-btn active" onclick="switchSubRegistro('costura')">
+            <i data-lucide="needle"></i> Avance de Costura (Puestos)
+          </button>
+          <button id="btn-subreg-terminadas" class="reg-mode-btn" onclick="switchSubRegistro('terminadas')">
+            <i data-lucide="check-check"></i> Salida de Prendas & Calidad
+          </button>
+        </div>
+
+        <!-- 1.1 PANEL: REGISTRO DE COSTURA POR OPERARIA -->
+        <div id="panel-subreg-costura" class="reg-panel active">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="clipboard-edit" class="title-icon"></i>
+              <span>Registro de Costura por Puesto de Trabajo</span>
+            </div>
+          </div>
+          <p class="card-subtitle">Registra la producción de cada operaria en su operación asignada</p>
+
+          <form id="form-registro-costura" onsubmit="enviarFormularioCostura(event)">
+            <div class="grid-responsive-2">
+              
+              <!-- Hora del Turno (Buscador Mágico) -->
+              <div class="form-group" style="z-index: 40;">
+                <label><i data-lucide="clock"></i> Hora del Turno</label>
+                <div class="searchable-select" id="ss-reg-hora">
+                  <input type="text" id="ss-reg-hora-input" class="ss-input" placeholder="Seleccionar hora..." readonly>
+                  <input type="hidden" id="reg-hora" name="horaTurno" value="1">
+                  <div class="ss-dropdown" id="ss-reg-hora-list"></div>
+                </div>
+              </div>
+
+              <!-- Orden de Producción (Buscador Mágico) -->
+              <div class="form-group" style="z-index: 30;">
+                <label><i data-lucide="hash"></i> Orden de Producción (OP)</label>
+                <div class="searchable-select" id="ss-reg-orden">
+                  <input type="text" id="ss-reg-orden-input" class="ss-input" placeholder="Buscar orden de producción..." autocomplete="off">
+                  <input type="hidden" id="reg-orden" name="idOrden">
+                  <div class="ss-dropdown" id="ss-reg-orden-list"></div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Banner Informativo de Prenda Seleccionada -->
+            <div id="reg-prenda-info" style="display:none; margin-top:-6px; margin-bottom:16px; font-size:0.85rem; background: var(--mod-reg-light); color: var(--mod-reg-primary); padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--mod-reg-border);"></div>
+
+            <div class="grid-responsive-2">
+              
+              <!-- Operaria (Buscador Mágico) -->
+              <div class="form-group" style="z-index: 25;">
+                <label><i data-lucide="user"></i> Operaria de Costura</label>
+                <div class="searchable-select" id="ss-operaria">
+                  <input type="text" id="ss-operaria-input" class="ss-input" placeholder="Buscar operaria..." autocomplete="off">
+                  <input type="hidden" id="reg-operaria" name="idOperaria">
+                  <div class="ss-dropdown" id="ss-operaria-list"></div>
+                </div>
+              </div>
+
+              <!-- Operación (Buscador Mágico - Filtrada por Prenda) -->
+              <div class="form-group" style="z-index: 20;">
+                <label><i data-lucide="settings"></i> Operación (Ruta de la Prenda)</label>
+                <div class="searchable-select" id="ss-operacion">
+                  <input type="text" id="ss-operacion-input" class="ss-input" placeholder="Primero seleccione una orden..." autocomplete="off">
+                  <input type="hidden" id="reg-operacion" name="idOperacion">
+                  <div class="ss-dropdown" id="ss-operacion-list"></div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Cantidad Producida (Punto 3: Digitación Directa Limpia) -->
+            <div class="form-group">
+              <label for="reg-cantidad"><i data-lucide="layers"></i> Cantidad de Unidades Producidas</label>
+              <input type="number" id="reg-cantidad" class="clean-number-input" name="cantidad" min="1" max="10000" placeholder="Ej: 35" required>
+            </div>
+
+            <!-- Observaciones -->
+            <div class="form-group">
+              <label for="reg-observaciones"><i data-lucide="message-square"></i> Observaciones (Opcional)</label>
+              <textarea id="reg-observaciones" name="observaciones" placeholder="Novedades, máquina en reparación, cambio de hilo..."></textarea>
+            </div>
+
+            <button type="submit" id="btn-submit-costura" class="btn btn-primary btn-block">
+              <i data-lucide="check-circle-2"></i> Registrar Avance de Costura
+            </button>
+          </form>
+        </div>
+
+        <!-- 1.2 PANEL: CONTROL DE CALIDAD Y SALIDA DE PRENDAS (Puntos 2 y 4) -->
+        <div id="panel-subreg-terminadas" class="reg-panel">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="check-check" class="title-icon" style="color:var(--success);"></i>
+              <span>Auditoría de Calidad & Salida de Módulo</span>
+            </div>
+          </div>
+          <p class="card-subtitle">Registra las prendas terminadas al final de la línea y el control de defectos</p>
+
+          <form id="form-registro-terminadas" onsubmit="enviarFormularioTerminadas(event)">
+            <div class="grid-responsive-2">
+              
+              <!-- Hora del Turno -->
+              <div class="form-group" style="z-index: 40;">
+                <label><i data-lucide="clock"></i> Hora del Turno</label>
+                <div class="searchable-select" id="ss-reg-term-hora">
+                  <input type="text" id="ss-reg-term-hora-input" class="ss-input" placeholder="Seleccionar hora..." readonly>
+                  <input type="hidden" id="reg-term-hora" name="horaTurno" value="1">
+                  <div class="ss-dropdown" id="ss-reg-term-hora-list"></div>
+                </div>
+              </div>
+
+              <!-- Orden de Producción -->
+              <div class="form-group" style="z-index: 30;">
+                <label><i data-lucide="hash"></i> Orden de Producción (OP)</label>
+                <div class="searchable-select" id="ss-reg-term-orden">
+                  <input type="text" id="ss-reg-term-orden-input" class="ss-input" placeholder="Buscar orden..." autocomplete="off">
+                  <input type="hidden" id="reg-term-orden" name="idOrden">
+                  <div class="ss-dropdown" id="ss-reg-term-orden-list"></div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="grid-responsive-2">
+              
+              <!-- Prendas Conformes (Primeras) -->
+              <div class="form-group">
+                <label for="reg-term-primeras" style="color: var(--success);">
+                  <i data-lucide="check-circle" style="color:var(--success);"></i> Prendas Conformes (Primeras)
+                </label>
+                <input type="number" id="reg-term-primeras" class="clean-number-input" style="color:var(--success); border-color: #86efac;" min="0" placeholder="Ej: 25" required>
+              </div>
+
+              <!-- Prendas con Defectos (Segundas / Reproceso) - Punto 4 -->
+              <div class="form-group">
+                <label for="reg-term-defectos" style="color: var(--danger);">
+                  <i data-lucide="alert-triangle" style="color:var(--danger);"></i> Prendas con Defecto (Reproceso)
+                </label>
+                <input type="number" id="reg-term-defectos" class="clean-number-input" style="color:var(--danger); border-color: #fca5a5;" min="0" value="0" placeholder="0">
+              </div>
+
+            </div>
+
+            <!-- Motivo de Defecto (Punto 4) -->
+            <div class="form-group" style="z-index: 20;">
+              <label><i data-lucide="alert-circle"></i> Motivo de Defecto Detectado (Si hubo)</label>
+              <div class="searchable-select" id="ss-term-defecto-motivo">
+                <input type="text" id="ss-term-defecto-input" class="ss-input" placeholder="Sin defectos (100% Primera)" autocomplete="off">
+                <input type="hidden" id="reg-term-motivo" value="Sin defectos">
+                <div class="ss-dropdown" id="ss-term-defecto-list"></div>
+              </div>
+            </div>
+
+            <!-- Observaciones -->
+            <div class="form-group">
+              <label for="reg-term-observaciones"><i data-lucide="message-square"></i> Observaciones de Auditoría</label>
+              <textarea id="reg-term-observaciones" placeholder="Detalles de costura, lote revisado, puesto a corregir..."></textarea>
+            </div>
+
+            <button type="submit" id="btn-submit-terminadas" class="btn btn-success btn-block" style="height:54px; font-size:1.05rem;">
+              <i data-lucide="check-check"></i> Registrar Salida de Módulo & Calidad
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- MÓDULO 2: TABLERO DE CONTROL (CENTRO DE CONTROL INDUSTRIAL)    -->
+    <!-- ============================================================== -->
+    <section id="view-dashboard" class="app-view">
+
+      <!-- Filtros del Tablero (Puntos 5 y 7) -->
+      <div class="card" style="border-top-color: var(--mod-dash-primary);">
+        <div class="card-title">
+          <div class="card-title-left">
+            <i data-lucide="filter" class="title-icon"></i>
+            <span>Filtros del Tablero de Producción</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="exportarReporteCSV()" title="Descargar reporte completo">
+            <i data-lucide="download"></i> Exportar Excel
+          </button>
+        </div>
+
+        <div class="grid-responsive-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label for="dash-filter-date"><i data-lucide="calendar"></i> Fecha del Turno</label>
+            <input type="date" id="dash-filter-date">
+          </div>
+          <div class="form-group" style="margin-bottom:0; z-index: 30;">
+            <label><i data-lucide="hash"></i> Filtrar por Orden de Producción (OP)</label>
+            <div class="searchable-select" id="ss-dash-orden">
+              <input type="text" id="ss-dash-orden-input" class="ss-input" placeholder="Todas las órdenes" autocomplete="off">
+              <input type="hidden" id="dash-filter-orden" value="">
+              <div class="ss-dropdown" id="ss-dash-orden-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px; margin-top:14px;">
+          <input type="checkbox" id="dash-filter-all-dates" style="width:20px; height:20px; cursor:pointer;">
+          <label for="dash-filter-all-dates" style="font-size:0.88rem; font-weight:600; color:var(--text-main); cursor:pointer;">
+            Ver histórico acumulado completo de la OP (sin límite de fecha)
+          </label>
+        </div>
+
+        <button class="btn btn-primary" style="margin-top:16px; height:46px;" onclick="actualizarDashboard()">
+          <i data-lucide="search"></i> Actualizar Tablero
+        </button>
+      </div>
+
+      <!-- Grid 2 Columnas para Desktop: Progreso + Barras Apiladas (Punto 6) -->
+      <div class="grid-responsive-2">
+        
+        <!-- Tarjeta 1: Progreso de Órdenes -->
+        <div class="card">
+          <h2 class="card-title"><i data-lucide="trending-up" class="title-icon"></i>Progreso General de Órdenes (OP)</h2>
+          <div id="dashboard-orders-container">
+            <p class="empty-message">Cargando avance de órdenes...</p>
+          </div>
+        </div>
+
+        <!-- Tarjeta 2: Gráfico de Barras Apiladas por Hora (Punto 6) -->
+        <div class="card">
+          <h2 class="card-title">
+            <i data-lucide="bar-chart-2" class="title-icon" style="color:var(--mod-dash-primary);"></i>
+            <span>Prendas Terminadas por Hora (Por Orden)</span>
+          </h2>
+          <p class="card-subtitle">Producción finalizada hora a hora dividida por cada orden activa en planta</p>
+          
+          <div class="stacked-chart-container">
+            <div id="stacked-hourly-bars" class="stacked-bars"></div>
+            <div id="stacked-chart-legend" class="chart-legend"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Tarjeta 3: Eficiencia de Operarias con Totales (Punto 8) -->
+      <div class="card">
+        <h2 class="card-title"><i data-lucide="users" class="title-icon"></i>Eficiencia de Operarias Hora a Hora</h2>
+        <p class="card-subtitle">Calculada en tiempo real según los minutos estándar (SAM) producidos contra el tiempo del turno</p>
+        <div class="table-responsive">
+          <table class="efficiency-table">
+            <thead>
+              <tr>
+                <th>Operaria</th>
+                <th>H1</th><th>H2</th><th>H3</th><th>H4</th><th>H5</th>
+                <th>H6</th><th>H7</th><th>H8</th><th>H9</th><th>H10</th>
+                <th class="col-total">Total Uds</th>
+                <th class="col-total">% Efic. Día</th>
+              </tr>
+            </thead>
+            <tbody id="efficiency-tbody">
+              <tr><td colspan="13" class="empty-message">Cargando eficiencias...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tarjeta 4: Detalle de Operaciones y Resumen (Punto 9) -->
+      <div class="card">
+        <h2 class="card-title"><i data-lucide="clipboard-list" class="title-icon"></i>Detalle de Operaciones Realizadas</h2>
+        <p class="card-subtitle">Desglose de cada actividad registrada en el día y orden seleccionados</p>
+
+        <!-- Filtro por Operaria con Buscador Mágico -->
+        <div class="form-group" style="max-width: 360px; margin-bottom: 16px; z-index: 25;">
+          <label><i data-lucide="user"></i> Filtrar por Operaria</label>
+          <div class="searchable-select" id="ss-detail-operaria">
+            <input type="text" id="ss-detail-operaria-input" class="ss-input" placeholder="Todas las operarias" autocomplete="off">
+            <input type="hidden" id="detail-filter-operaria" value="">
+            <div class="ss-dropdown" id="ss-detail-operaria-list"></div>
+          </div>
+        </div>
+
+        <!-- Tarjetas KPI Resumen Totalizador (Punto 9) -->
+        <div class="grid-responsive-2" style="margin-bottom: 16px;">
+          <div style="background: var(--bg-app); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 14px 18px;">
+            <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Total Unidades Confeccionadas</div>
+            <div id="kpi-total-unidades-detalle" style="font-size:1.6rem; font-weight:800; color:var(--mod-dash-primary); margin-top:4px;">0 unidades</div>
+          </div>
+          <div style="background: var(--bg-app); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 14px 18px;">
+            <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Total Minutos SAM Ganados</div>
+            <div id="kpi-total-sam-detalle" style="font-size:1.6rem; font-weight:800; color:var(--mod-dash-accent); margin-top:4px;">0.0 min</div>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="efficiency-table" style="min-width: 100%;">
+            <thead>
+              <tr>
+                <th style="text-align: left !important; padding-left: 12px;">Operaria</th>
+                <th>Hora</th>
+                <th style="text-align: left !important;">Operación</th>
+                <th>Cantidad</th>
+                <th>Min SAM</th>
+              </tr>
+            </thead>
+            <tbody id="detalles-operaciones-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- MÓDULO 3: PANEL ADMINISTRADOR Y MAESTROS (Puntos 8 y 9)        -->
+    <!-- ============================================================== -->
+    <section id="view-admin" class="app-view">
+      
+      <!-- CABECERA DEL PANEL DE ADMINISTRACIÓN -->
+      <div class="card" style="border-top-color: var(--mod-adm-primary); margin-bottom: 24px;">
+        <div class="card-title">
+          <div class="card-title-left">
+            <i data-lucide="shield-check" class="title-icon" style="color:var(--mod-adm-primary);"></i>
+            <span>Panel de Administración, Maestros e Ingeniería</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="salirModoAdmin()">
+            <i data-lucide="log-out"></i> Salir a Modo Piso
+          </button>
+        </div>
+        <p class="card-subtitle">Gestiona de forma integral y ordenada las órdenes de producción, el personal de costura, el catálogo de prendas con sus fichas SAM y la configuración de turnos y costeo de planta.</p>
+
+        <!-- BENTO HUB: ACCESOS DIRECTOS INTERACTIVOS (HIPERVÍNCULOS A CADA SECCIÓN) -->
+        <div id="admin-hub-nav" class="admin-hub-grid" style="margin-top: 18px;">
+          
+          <div class="admin-hub-card" onclick="irASeccionAdmin('seccion-admin-ordenes')">
+            <div class="admin-hub-icon">
+              <i data-lucide="hash"></i>
+            </div>
+            <h4>Órdenes (OP) & Proyección <i data-lucide="arrow-down-right" style="width:16px;height:16px;"></i></h4>
+            <p>Crear órdenes, asignar prendas y calcular tiempos de entrega por capacidad.</p>
+          </div>
+
+          <div class="admin-hub-card" onclick="irASeccionAdmin('seccion-admin-operarias')">
+            <div class="admin-hub-icon">
+              <i data-lucide="users"></i>
+            </div>
+            <h4>Operarias (Personal) <i data-lucide="arrow-down-right" style="width:16px;height:16px;"></i></h4>
+            <p>Carga masiva Excel, alta individual y administración de líneas/módulos.</p>
+          </div>
+
+          <div class="admin-hub-card" onclick="irASeccionAdmin('seccion-admin-prendas')">
+            <div class="admin-hub-icon">
+              <i data-lucide="shirt"></i>
+            </div>
+            <h4>Prendas & Fichas SAM <i data-lucide="arrow-down-right" style="width:16px;height:16px;"></i></h4>
+            <p>Catálogo maestro de referencias, operaciones de costura y edición rápida de SAMs.</p>
+          </div>
+
+          <div class="admin-hub-card" onclick="irASeccionAdmin('seccion-admin-turnos')">
+            <div class="admin-hub-icon">
+              <i data-lucide="clock"></i>
+            </div>
+            <h4>Turnos & Costeo Minuto <i data-lucide="arrow-down-right" style="width:16px;height:16px;"></i></h4>
+            <p>Horarios fabriles, bloque de almuerzo y costo del minuto estándar de planta.</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- RECUADRO AISLADO 1: ÓRDENES DE PRODUCCIÓN & PROYECCIÓN -->
+      <div id="seccion-admin-ordenes" class="admin-section-box">
+        <div class="admin-section-header">
+          <div class="admin-section-title">
+            <div class="admin-hub-icon" style="background:#eef2ff; color:#4f46e5; margin:0;">
+              <i data-lucide="hash"></i>
+            </div>
+            <div>
+              <h3>1. Órdenes de Producción (OP) & Planificación</h3>
+              <span class="admin-section-badge" style="background:#eef2ff; color:#4f46e5;">Planificación y Tiempos de Entrega</span>
+            </div>
+          </div>
+          <button type="button" class="btn-back-to-hub" onclick="irASeccionAdmin('admin-hub-nav')">
+            <i data-lucide="arrow-up"></i> Volver al Menú
+          </button>
+        </div>
+
+        <form onsubmit="crearNuevaOP(event)" style="background: var(--bg-app); padding: 20px; border-radius: 14px; border: 1.5px solid var(--border-color); margin-bottom: 24px;">
+          <h4 style="font-size:1rem; font-weight:700; margin-bottom:14px; color:var(--mod-adm-primary);">
+            <i data-lucide="plus-circle" style="width:18px;height:18px;display:inline;"></i> Registrar Nueva Orden de Producción
+          </h4>
+          
+          <div class="grid-responsive-2">
+            <div class="form-group">
+              <label>Número de OP</label>
+              <input type="text" id="admin-op-num" placeholder="Ej: OP-2026-005" required>
+            </div>
+            <div class="form-group" style="z-index:25;">
+              <label>Prenda / Referencia</label>
+              <div class="searchable-select" id="ss-admin-op-prenda">
+                <input type="text" id="ss-admin-op-prenda-input" class="ss-input" placeholder="Buscar prenda..." autocomplete="off">
+                <input type="hidden" id="admin-op-prenda" required>
+                <div class="ss-dropdown" id="ss-admin-op-prenda-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-responsive-3">
+            <div class="form-group">
+              <label>Cantidad Meta (Unidades)</label>
+              <input type="number" id="admin-op-meta" class="clean-number-input" placeholder="Ej: 1200" min="1" required oninput="calcularProyeccionEntregaEnForm()">
+            </div>
+            <div class="form-group">
+              <label>Operarias Estimadas en Línea</label>
+              <input type="number" id="admin-op-operarias" class="clean-number-input" value="10" min="1" oninput="calcularProyeccionEntregaEnForm()">
+            </div>
+            <div class="form-group">
+              <label>Eficiencia Esperada (%)</label>
+              <input type="number" id="admin-op-eficiencia" class="clean-number-input" value="80" min="1" max="150" oninput="calcularProyeccionEntregaEnForm()">
+            </div>
+          </div>
+
+          <!-- Calculadora en Vivo de Tiempos de Entrega (Punto 9) -->
+          <div id="capacity-form-preview" class="capacity-card" style="display:none;">
+            <div class="capacity-title"><i data-lucide="calculator"></i> Proyección de Capacidad & Tiempo de Entrega</div>
+            <div class="capacity-result-banner">
+              <div class="capacity-stat">Minutos SAM Requeridos: <strong id="cap-calc-minutos">0 min</strong></div>
+              <div class="capacity-stat">Capacidad Diaria del Módulo: <strong id="cap-calc-diaria">0 min/día</strong></div>
+              <div class="capacity-stat">Tiempo Estimado: <strong id="cap-calc-dias">0 días</strong></div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="margin-top:16px; height:48px;">
+            <i data-lucide="save"></i> Crear Orden de Producción
+          </button>
+        </form>
+
+        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Órdenes Registradas</h4>
+        <div id="admin-ordenes-list"></div>
+      </div>
+
+      <!-- RECUADRO AISLADO 2: OPERARIAS / MÁSTER PERSONAL -->
+      <div id="seccion-admin-operarias" class="admin-section-box">
+        <div class="admin-section-header">
+          <div class="admin-section-title">
+            <div class="admin-hub-icon" style="background:#e0f2fe; color:#0284c7; margin:0;">
+              <i data-lucide="users"></i>
+            </div>
+            <div>
+              <h3>2. Personal y Operarias de Costura</h3>
+              <span class="admin-section-badge" style="background:#e0f2fe; color:#0284c7;">Recursos Humanos & Asignación</span>
+            </div>
+          </div>
+          <button type="button" class="btn-back-to-hub" onclick="irASeccionAdmin('admin-hub-nav')">
+            <i data-lucide="arrow-up"></i> Volver al Menú
+          </button>
+        </div>
+        
+        <!-- Carga Masiva de Operarias desde Excel -->
+        <div class="import-card" style="border-color:#c7d2fe; background:linear-gradient(135deg, #eef2ff 0%, #ffffff 100%);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h4 style="color:var(--mod-reg-primary); font-weight:700;"><i data-lucide="file-spreadsheet"></i> Carga Masiva de Operarias desde Excel</h4>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="descargarPlantillaOperariasExcel()">
+              <i data-lucide="download"></i> Plantilla Excel
+            </button>
+          </div>
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+            Columnas requeridas: <strong>Nombre | Codigo | Modulo</strong>
+          </p>
+
+          <div class="upload-dropzone" onclick="document.getElementById('excel-file-operarias').click()">
+            <i data-lucide="upload-cloud" style="color:var(--mod-reg-primary);"></i>
+            <p style="color:var(--mod-reg-primary);">Seleccionar Archivo Excel de Operarias (.xlsx / .csv)</p>
+            <span>Haz clic o arrastra tu archivo aquí</span>
+            <input type="file" id="excel-file-operarias" accept=".xlsx, .xls, .csv" style="display:none;" onchange="alSeleccionarArchivoExcelOperarias(event)">
+          </div>
+
+          <div id="preview-import-operarias" style="display:none;" class="preview-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h5 id="preview-operarias-title">Vista Previa de Operarias</h5>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-confirmar-import-operarias" onclick="confirmarImportacionOperarias()">
+                <i data-lucide="check"></i> Confirmar e Importar
+              </button>
+            </div>
+            <div id="preview-operarias-content" style="font-size:0.82rem;"></div>
+          </div>
+        </div>
+
+        <!-- Registro Individual de Operaria -->
+        <form onsubmit="crearNuevaOperaria(event)" style="background: var(--bg-app); padding: 18px; border-radius: 14px; border: 1.5px solid var(--border-color); margin-bottom: 20px;">
+          <h4 style="font-size:0.95rem; font-weight:700; margin-bottom:12px;"><i data-lucide="user-plus" style="width:16px;height:16px;display:inline;"></i> Agregar Operaria Manualmente</h4>
+          <div class="grid-responsive-3">
+            <div class="form-group">
+              <label>Nombre Completo</label>
+              <input type="text" id="admin-operaria-nombre" placeholder="Ej: Ana Lucía Martínez" required>
+            </div>
+            <div class="form-group">
+              <label>Código o Cédula (Opcional)</label>
+              <input type="text" id="admin-operaria-codigo" placeholder="Ej: OP-105">
+            </div>
+            <div class="form-group">
+              <label>Módulo / Línea Asignada</label>
+              <input type="text" id="admin-operaria-modulo" value="Módulo 1" placeholder="Ej: Módulo 1">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="height:44px;">
+            <i data-lucide="save"></i> Guardar Operaria
+          </button>
+        </form>
+
+        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Personal Registrado</h4>
+        <div id="admin-operarias-list"></div>
+      </div>
+
+      <!-- RECUADRO AISLADO 3: PRENDAS Y OPERACIONES SAM -->
+      <div id="seccion-admin-prendas" class="admin-section-box">
+        <div class="admin-section-header">
+          <div class="admin-section-title">
+            <div class="admin-hub-icon" style="background:#ecfdf5; color:#059669; margin:0;">
+              <i data-lucide="shirt"></i>
+            </div>
+            <div>
+              <h3>3. Catálogo de Prendas, Balanceo & Fichas SAM</h3>
+              <span class="admin-section-badge" style="background:#ecfdf5; color:#059669;">Ingeniería Textil & SAMs</span>
+            </div>
+          </div>
+          <button type="button" class="btn-back-to-hub" onclick="irASeccionAdmin('admin-hub-nav')">
+            <i data-lucide="arrow-up"></i> Volver al Menú
+          </button>
+        </div>
+        
+        <!-- Carga Masiva desde Excel -->
+        <div class="import-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <h4 style="color:#15803d; font-weight:700;"><i data-lucide="file-spreadsheet"></i> Carga Masiva de Fichas Técnicas & SAMs desde Excel</h4>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="exportarCatalogoCompletoExcel()" title="Descargar todo el catálogo">
+                <i data-lucide="file-down"></i> Exportar Todo
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="descargarPlantillaPrendasExcel()">
+                <i data-lucide="download"></i> Plantilla Excel
+              </button>
+            </div>
+          </div>
+          <p style="font-size:0.8rem; color:#15803d; margin-bottom:12px;">
+            Columnas: <strong>Referencia | Codigo_Operacion | Nombre_Operacion | SAM</strong>
+          </p>
+
+          <div class="upload-dropzone" onclick="document.getElementById('excel-file-prendas').click()">
+            <i data-lucide="upload-cloud"></i>
+            <p>Haz clic para seleccionar tu archivo Excel (.xlsx / .csv)</p>
+            <span>Importa todas las prendas y SAMs de una sola vez</span>
+            <input type="file" id="excel-file-prendas" accept=".xlsx, .xls, .csv" style="display:none;" onchange="alSeleccionarArchivoExcelPrendas(event)">
+          </div>
+
+          <div id="preview-import-prendas" style="display:none;" class="preview-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h5 id="preview-prendas-title">Vista Previa</h5>
+              <button type="button" class="btn btn-success btn-sm" id="btn-confirmar-import-prendas" onclick="confirmarImportacionPrendas()">
+                <i data-lucide="check"></i> Confirmar e Importar a la Nube
+              </button>
+            </div>
+            <div id="preview-prendas-content" style="font-size:0.82rem;"></div>
+          </div>
+        </div>
+
+        <!-- Crear Prenda Manual -->
+        <div class="grid-responsive-2" style="margin-bottom: 24px;">
+          
+          <form onsubmit="crearNuevaPrenda(event)" style="background: var(--bg-app); padding: 18px; border-radius: 14px; border: 1.5px solid var(--border-color);">
+            <h4 style="font-size:0.95rem; font-weight:700; margin-bottom:12px;"><i data-lucide="tag" style="width:16px;height:16px;display:inline;"></i> 1. Crear Prenda Manual</h4>
+            <div class="form-group">
+              <label>Código / Referencia</label>
+              <input type="text" id="admin-prenda-ref" placeholder="Ej: JEAN-SLIM-202" required>
+            </div>
+            <div class="form-group">
+              <label>Descripción de Prenda</label>
+              <input type="text" id="admin-prenda-desc" placeholder="Ej: Pantalón Denim 12oz">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" style="height:44px;">
+              <i data-lucide="plus"></i> Guardar Prenda
+            </button>
+          </form>
+
+          <!-- Agregar Operación Manual a Prenda (Punto 8: Auto Código y Edición SAM) -->
+          <form onsubmit="agregarOperacionAPrenda(event)" style="background: var(--bg-app); padding: 18px; border-radius: 14px; border: 1.5px solid var(--border-color);">
+            <h4 style="font-size:0.95rem; font-weight:700; margin-bottom:12px;"><i data-lucide="list-plus" style="width:16px;height:16px;display:inline;"></i> 2. Agregar Operación a la Prenda</h4>
+            <div class="form-group" style="z-index:20;">
+              <label>Seleccionar Prenda</label>
+              <div class="searchable-select" id="ss-admin-op-add-prenda">
+                <input type="text" id="ss-admin-op-add-prenda-input" class="ss-input" placeholder="Buscar prenda..." autocomplete="off">
+                <input type="hidden" id="admin-operacion-prenda" required>
+                <div class="ss-dropdown" id="ss-admin-op-add-prenda-list"></div>
+              </div>
+            </div>
+            <div class="grid-responsive-2">
+              <div class="form-group">
+                <label>Código Op <span style="font-weight:400; color:var(--text-muted);">(Vacío = Auto)</span></label>
+                <input type="text" id="admin-operacion-codigo" placeholder="Ej: OP-01 (o dejar vacío)">
+              </div>
+              <div class="form-group">
+                <label>SAM (Minutos estándar)</label>
+                <input type="number" id="admin-operacion-sam" class="clean-number-input" step="0.001" placeholder="Ej: 1.450" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Nombre de la Operación</label>
+              <input type="text" id="admin-operacion-nombre" placeholder="Ej: Pegar Pretina" required>
+            </div>
+            <button type="submit" class="btn btn-success btn-block" style="height:44px;">
+              <i data-lucide="plus-circle"></i> Agregar a Ficha Técnica
+            </button>
+          </form>
+
+        </div>
+
+        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Fichas Técnicas Activas</h4>
+        <div id="admin-prendas-list"></div>
+      </div>
+
+      <!-- RECUADRO AISLADO 4: CONFIGURACIÓN DE TURNOS Y COSTEO -->
+      <div id="seccion-admin-turnos" class="admin-section-box">
+        <div class="admin-section-header">
+          <div class="admin-section-title">
+            <div class="admin-hub-icon" style="background:#fef3c7; color:#d97706; margin:0;">
+              <i data-lucide="clock"></i>
+            </div>
+            <div>
+              <h3>4. Turnos de Planta, Almuerzo & Costeo del Minuto</h3>
+              <span class="admin-section-badge" style="background:#fef3c7; color:#d97706;">Configuración Fabril</span>
+            </div>
+          </div>
+          <button type="button" class="btn-back-to-hub" onclick="irASeccionAdmin('admin-hub-nav')">
+            <i data-lucide="arrow-up"></i> Volver al Menú
+          </button>
+        </div>
+
+        <form onsubmit="guardarConfiguracionTurnos(event)" style="background: var(--bg-app); padding: 20px; border-radius: 14px; border: 1.5px solid var(--border-color);">
+          <h4 style="font-size:1rem; font-weight:700; margin-bottom:14px;"><i data-lucide="sliders" style="width:18px;height:18px;display:inline;"></i> Horarios de la Planta y Costo Minuto</h4>
+          <div class="grid-responsive-2">
+            <div class="form-group">
+              <label>Hora de Inicio Jornada</label>
+              <input type="text" id="admin-cfg-hora-inicio" value="06:00" placeholder="06:00" required>
+            </div>
+            <div class="form-group">
+              <label>Minutos por Bloque (Hora)</label>
+              <input type="number" id="admin-cfg-duracion" value="60" required>
+            </div>
+          </div>
+          <div class="grid-responsive-3">
+            <div class="form-group">
+              <label>Total Horas por Turno</label>
+              <input type="number" id="admin-cfg-total-horas" value="10" required>
+            </div>
+            <div class="form-group">
+              <label>Bloque del Almuerzo (Hora)</label>
+              <input type="number" id="admin-cfg-almuerzo-hora" value="4" required>
+            </div>
+            <div class="form-group">
+              <label>Minutos de Almuerzo</label>
+              <input type="number" id="admin-cfg-almuerzo-min" value="30" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Costo Minuto Planta ($ USD/COP)</label>
+            <input type="number" id="admin-cfg-costo-minuto" step="0.0001" value="0.1500" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="height:48px;">
+            <i data-lucide="save"></i> Guardar Ajustes de Turno y Costeo
+          </button>
+        </form>
+      </div>
+
+      <!-- BOTÓN FLOTANTE: VOLVER ARRIBA -->
+      <button id="btn-floating-top" class="btn-floating-top" onclick="irASeccionAdmin('view-admin')" title="Subir al inicio del panel">
+        <i data-lucide="arrow-up"></i>
+      </button>
+
+    </section>
+
+  </main>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: DESBLOQUEO CON PIN DE ADMINISTRADOR                     -->
+  <!-- ============================================================== -->
+  <div id="modal-admin-pin" class="modal-overlay">
+    <div class="modal-card">
+      <h3 style="font-size:1.2rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+        <i data-lucide="lock" style="color:var(--warning);"></i> Acceso Administrador
+      </h3>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:18px;">
+        Ingresa el PIN de seguridad para acceder a los maestros, fichas técnicas y configuración de la planta.
+      </p>
+      <div class="form-group">
+        <label for="admin-pin-input">PIN de seguridad (Por defecto: 1234)</label>
+        <input type="password" id="admin-pin-input" maxlength="8" placeholder="••••" style="text-align:center; font-size:1.6rem; letter-spacing:10px;" onkeypress="if(event.key === 'Enter') validarAdminPin()">
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="cerrarModalAdminPin()">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="validarAdminPin()">Entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: EDITAR SAM DE OPERACIÓN IN-SITU (Punto 8)               -->
+  <!-- ============================================================== -->
+  <div id="modal-edit-sam" class="modal-overlay">
+    <div class="modal-card">
+      <h3 style="font-size:1.15rem; font-weight:700; margin-bottom:8px;">
+        <i data-lucide="edit-3" style="color:var(--mod-adm-primary);"></i> Modificar SAM de Operación
+      </h3>
+      <p id="edit-sam-desc" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;"></p>
+      <input type="hidden" id="edit-sam-op-id">
+      <div class="form-group">
+        <label>Nuevo Valor SAM (Minutos estándar)</label>
+        <input type="number" id="edit-sam-valor" class="clean-number-input" step="0.001" min="0.001" required>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="cerrarModalEditSAM()">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="guardarEdicionSAM()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPTS DE LA APLICACIÓN -->
+  <script src="js/supabase-client.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>

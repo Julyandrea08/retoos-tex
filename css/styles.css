@@ -907,3 +907,196 @@ textarea {
   max-height: 280px;
   overflow-y: auto;
 }
+
+/* ==============================================================================
+   ESTILOS PARA HUB DE MAESTROS EN RECUADROS INDIVIDUALES (Punto Admin Armónico)
+   ============================================================================== */
+.admin-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+@media (min-width: 900px) {
+  .admin-hub-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.admin-hub-card {
+  background: #ffffff;
+  border: 1.5px solid var(--border-color);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-hub-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--mod-adm-primary);
+}
+
+.admin-hub-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--mod-adm-primary);
+}
+
+.admin-hub-card:nth-child(1)::before { background: #4f46e5; }
+.admin-hub-card:nth-child(2)::before { background: #0284c7; }
+.admin-hub-card:nth-child(3)::before { background: #059669; }
+.admin-hub-card:nth-child(4)::before { background: #d97706; }
+
+.admin-hub-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.admin-hub-card:nth-child(1) .admin-hub-icon { background: #eef2ff; color: #4f46e5; }
+.admin-hub-card:nth-child(2) .admin-hub-icon { background: #e0f2fe; color: #0284c7; }
+.admin-hub-card:nth-child(3) .admin-hub-icon { background: #ecfdf5; color: #059669; }
+.admin-hub-card:nth-child(4) .admin-hub-icon { background: #fef3c7; color: #d97706; }
+
+.admin-hub-card h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-hub-card p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* RECUADROS INDIVIDUALES AISLADOS */
+.admin-section-box {
+  background: #ffffff;
+  border: 1.5px solid var(--border-color);
+  border-radius: 18px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: var(--shadow-sm);
+  scroll-margin-top: 90px; /* Para que el scroll no quede tapado por el header */
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.admin-section-box.highlight {
+  border-color: var(--mod-adm-primary);
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.2);
+}
+
+.admin-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1.5px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-section-title h3 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.admin-section-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.btn-back-to-hub {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-back-to-hub:hover {
+  color: var(--mod-adm-primary);
+  border-color: var(--mod-adm-primary);
+  background: #ffffff;
+}
+
+/* BOTÓN FLOTANTE VOLVER ARRIBA */
+.btn-floating-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  background: var(--mod-adm-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+  cursor: pointer;
+  z-index: 150;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.25s ease;
+}
+
+.btn-floating-top.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.btn-floating-top:hover {
+  background: var(--mod-adm-hover);
+  transform: scale(1.08);
+}
+
+/* ROTACIÓN DE SINCRONIZACIÓN SUTIL */
+@keyframes spinSync {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn-icon-only.spinning i {
+  animation: spinSync 0.75s linear infinite;
+  color: #38bdf8 !important;
+}
