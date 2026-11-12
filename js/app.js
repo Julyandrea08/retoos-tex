@@ -629,12 +629,27 @@ async function actualizarDashboard(mostrarOverlay = false) {
     }
 
     // 3. Ejecutar AMBAS consultas EN PARALELO (Promise.all) para máxima velocidad
-    const [resCostura, resTerm] = await Promise.all([
-      queryCostura.order("hora_turno", { ascending: true }),
-      queryTerm.catch(e => {
-        console.warn("Tabla registros_prendas_terminadas no accesible:", e);
+    const fetchCostura = async () => {
+      try {
+        return await queryCostura.order("hora_turno", { ascending: true });
+      } catch (e) {
+        console.error("Error al cargar registros de costura:", e);
+        return { data: [], error: e };
+      }
+    };
+
+    const fetchTerminadas = async () => {
+      try {
+        return await queryTerm;
+      } catch (e) {
+        console.warn("Tabla registros_prendas_terminadas no accesible aún:", e);
         return { data: null };
-      })
+      }
+    };
+
+    const [resCostura, resTerm] = await Promise.all([
+      fetchCostura(),
+      fetchTerminadas()
     ]);
 
     if (resCostura && !resCostura.error) {
