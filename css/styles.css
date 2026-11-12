@@ -34,6 +34,13 @@
   --mod-adm-border: #ddd6fe;
   --mod-adm-accent: #d97706;
 
+  /* Módulo 4: ANALÍTICA GERENCIAL & BI (Azul Ejecutivo & Dorado) */
+  --mod-ger-primary: #0284c7;
+  --mod-ger-hover: #0369a1;
+  --mod-ger-light: #f0f9ff;
+  --mod-ger-border: #bae6fd;
+  --mod-ger-gold: #f59e0b;
+
   /* Alertas */
   --success: #10b981;
   --warning: #f59e0b;
@@ -759,6 +766,11 @@ textarea {
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25);
 }
 
+.theme-gerencial .btn-primary {
+  background: linear-gradient(135deg, var(--mod-ger-primary) 0%, var(--mod-ger-hover) 100%);
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.25);
+}
+
 .btn-secondary {
   background-color: #ffffff;
   color: var(--text-main);
@@ -1267,4 +1279,182 @@ textarea {
 }
 .btn-strip-action.btn-action-danger:hover {
   background: #fee2e2;
+}
+
+/* ==============================================================================
+   15. MÓDULO DE ANALÍTICA GERENCIAL & BI (ESTILO LOOKER STUDIO)
+   ============================================================================== */
+.ger-subnav {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.ger-subnav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: 1.5px solid var(--border-color);
+  background: #ffffff;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.ger-subnav-btn:hover {
+  background: var(--bg-app);
+  border-color: #94a3b8;
+}
+
+.ger-subnav-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 3px 10px rgba(2, 132, 199, 0.25);
+}
+
+.ger-pane {
+  display: none;
+}
+
+.ger-pane.active {
+  display: block;
+  animation: fadeInPane 0.25s ease-in-out;
+}
+
+@keyframes fadeInPane {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* SCORECARDS EJECUTIVOS */
+.ger-scorecards-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .ger-scorecards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ger-big-kpi-card {
+  background: #fef2f2;
+  border: 2px solid #fca5a5;
+  border-radius: 14px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.ger-big-kpi-card.baja {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.ger-big-kpi-card.media {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.ger-big-kpi-card.alta {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.ger-big-kpi-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.ger-big-kpi-value {
+  font-size: 3.2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.ger-big-kpi-sub {
+  font-size: 0.78rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.ger-mini-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .ger-mini-kpis-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ger-mini-kpi-card {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.ger-mini-kpi-card .label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.ger-mini-kpi-card .val {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+/* BARRA DE PROGRESO IN-CELL PARA TABLAS */
+.table-progress-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-progress-bar {
+  flex: 1;
+  height: 12px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.table-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  border-radius: 6px;
+  transition: width 0.3s ease;
 }

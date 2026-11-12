@@ -21,6 +21,9 @@
   <!-- SheetJS para Importar y Exportar Excel (.xlsx / .csv) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
+  <!-- Chart.js para Analítica Gerencial y BI -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <!-- Estilos de la Aplicación -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -57,8 +60,12 @@
           <span>Registrar Avance</span>
         </button>
         <button id="nav-btn-dashboard" class="top-nav-btn" data-view="dashboard" onclick="switchView('dashboard')">
-          <i data-lucide="bar-chart-3"></i>
+          <i data-lucide="activity"></i>
           <span>Tablero en Vivo</span>
+        </button>
+        <button id="nav-btn-gerencial" class="top-nav-btn" data-view="gerencial" onclick="switchView('gerencial')">
+          <i data-lucide="pie-chart"></i>
+          <span>Analítica Gerencial 🔒</span>
         </button>
         <button id="nav-btn-admin" class="top-nav-btn" data-view="admin" onclick="switchView('admin')">
           <i data-lucide="shield-check"></i>
@@ -402,6 +409,246 @@
           </table>
         </div>
       </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- MÓDULO 4: ANALÍTICA GERENCIAL & BI (PROTEGIDO CON CONTRASEÑA) -->
+    <!-- ============================================================== -->
+    <section id="view-gerencial" class="app-view">
+      
+      <!-- CABECERA DEL PANEL GERENCIAL -->
+      <div class="card" style="border-top-color: var(--mod-ger-primary); margin-bottom: 20px;">
+        <div class="card-title">
+          <div class="card-title-left">
+            <i data-lucide="pie-chart" class="title-icon" style="color:var(--mod-ger-primary);"></i>
+            <span>Analítica Gerencial & Business Intelligence</span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="btn btn-secondary btn-sm" onclick="exportarReporteGerencialExcel()">
+              <i data-lucide="download"></i> Exportar BI
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="bloquearModoGerencial()">
+              <i data-lucide="lock"></i> Bloquear Acceso
+            </button>
+          </div>
+        </div>
+        <p class="card-subtitle">
+          Tablero ejecutivo estratégico: eficiencia global de planta, ranking de operarias, semáforo de desempeño, control de órdenes y lead times de producción.
+        </p>
+
+        <!-- SUBTABS GERENCIALES (PANTALLA 1 VS PANTALLA 2) -->
+        <div class="ger-subnav">
+          <button id="btn-ger-tab-operaciones" class="ger-subnav-btn active" onclick="switchGerencialSubTab('operaciones')">
+            <i data-lucide="gauge"></i> 1. Control de Operaciones & Eficiencia
+          </button>
+          <button id="btn-ger-tab-ordenes" class="ger-subnav-btn" onclick="switchGerencialSubTab('ordenes')">
+            <i data-lucide="folder-kanban"></i> 2. Control de Órdenes & Tiempos (Lead Time)
+          </button>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- PANTALLA 1: CONTROL DE OPERACIONES (Imagen 1 del Usuario)    -->
+      <!-- ============================================================ -->
+      <div id="ger-pane-operaciones" class="ger-pane active">
+        
+        <!-- Barra de Filtros Gerenciales -->
+        <div class="card" style="padding: 16px 20px; margin-bottom: 20px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span style="font-size:0.85rem; font-weight:700; color:var(--text-muted);"><i data-lucide="calendar" style="width:16px;height:16px;display:inline;"></i> Periodo:</span>
+              <select id="ger-filter-periodo" class="clean-select" onchange="aplicarFiltrosGerenciales()" style="height:38px; padding:0 12px; border-radius:8px; font-size:0.85rem; font-weight:600; border:1px solid var(--border-color); background:#fff;">
+                <option value="hoy">Hoy</option>
+                <option value="semana" selected>Esta Semana</option>
+                <option value="mes">Este Mes</option>
+                <option value="todo">Histórico Completo</option>
+              </select>
+
+              <span style="font-size:0.85rem; font-weight:700; color:var(--text-muted); margin-left:8px;"><i data-lucide="user" style="width:16px;height:16px;display:inline;"></i> Operaria:</span>
+              <select id="ger-filter-operaria" class="clean-select" onchange="aplicarFiltrosGerenciales()" style="height:38px; padding:0 12px; border-radius:8px; font-size:0.85rem; max-width:200px; border:1px solid var(--border-color); background:#fff;">
+                <option value="">Todas las operarias</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary btn-sm" onclick="aplicarFiltrosGerenciales()">
+              <i data-lucide="refresh-cw"></i> Actualizar Analítica
+            </button>
+          </div>
+        </div>
+
+        <!-- SCORECARDS EJECUTIVOS (ESTRUCTURA IDÉNTICA A LOOKER STUDIO) -->
+        <div class="ger-scorecards-grid">
+          
+          <!-- Card Grande Destacada con Semáforo Dinámico -->
+          <div id="card-ger-eficiencia-global" class="ger-big-kpi-card">
+            <div class="ger-big-kpi-title">Eficiencia Global</div>
+            <div id="kpi-ger-eficiencia" class="ger-big-kpi-value">0.0 %</div>
+            <div id="kpi-ger-eficiencia-sub" class="ger-big-kpi-sub">Calculada sobre tiempo de presencia</div>
+          </div>
+
+          <!-- Grid 6 Mini KPIs -->
+          <div class="ger-mini-kpis-grid">
+            <div class="ger-mini-kpi-card">
+              <span class="label">Minutos SAM</span>
+              <strong id="kpi-ger-min-sam" class="val">0.0 mil</strong>
+            </div>
+            <div class="ger-mini-kpi-card">
+              <span class="label">Prendas Totales</span>
+              <strong id="kpi-ger-prendas-tot" class="val">0</strong>
+            </div>
+            <div class="ger-mini-kpi-card">
+              <span class="label">Operarias Activas</span>
+              <strong id="kpi-ger-operarias-act" class="val">0</strong>
+            </div>
+            <div class="ger-mini-kpi-card">
+              <span class="label">Minutos Perdidos</span>
+              <strong id="kpi-ger-min-perdidos" class="val" style="color:var(--danger);">0.0 mil</strong>
+            </div>
+            <div class="ger-mini-kpi-card">
+              <span class="label">Horas / Hombre</span>
+              <strong id="kpi-ger-horas-hombre" class="val">0.0</strong>
+            </div>
+            <div class="ger-mini-kpi-card">
+              <span class="label">Prendas / Hora</span>
+              <strong id="kpi-ger-prendas-hora" class="val">0.0</strong>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- GRÁFICO PRINCIPAL: EFICIENCIA POR OPERARIA (BARRAS CON LÍNEA META 85%) -->
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="bar-chart-2" class="title-icon" style="color:var(--mod-ger-primary);"></i>
+              <span>Eficiencia por Operario (Meta 85%)</span>
+            </div>
+            <span style="font-size:0.75rem; font-weight:700; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:3px 8px; border-radius:6px;">
+              Línea Guía: 85% Meta
+            </span>
+          </div>
+          <div style="position:relative; height:320px; width:100%;">
+            <canvas id="chart-ger-operarias"></canvas>
+          </div>
+        </div>
+
+        <!-- GRID 2 COLUMNAS: TENDENCIA DIARIA + SEMÁFORO DE DESEMPEÑO -->
+        <div class="grid-responsive-2">
+          
+          <!-- Tendencia Diaria -->
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="trending-up" class="title-icon" style="color:#d97706;"></i>
+                <span>Eficiencia Diaria (Evolución)</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-tendencia"></canvas>
+            </div>
+          </div>
+
+          <!-- Semáforo de Desempeño (Dona) -->
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="pie-chart" class="title-icon" style="color:#059669;"></i>
+                <span>Semáforo de Desempeño</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-semaforo"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- PANTALLA 2: CONTROL DE ÓRDENES & TIEMPOS (Imagen 2)          -->
+      <!-- ============================================================ -->
+      <div id="ger-pane-ordenes" class="ger-pane">
+        
+        <!-- Scorecards de Órdenes (Imagen 2) -->
+        <div class="grid-responsive-4" style="margin-bottom: 20px;">
+          <div class="card" style="padding:16px 20px;">
+            <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Cumplimiento Global</div>
+            <div id="kpi-ger-cumplimiento" style="font-size:1.8rem; font-weight:800; color:var(--mod-ger-primary); margin-top:4px;">0.0 %</div>
+          </div>
+          <div class="card" style="padding:16px 20px;">
+            <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Lead Time Promedio</div>
+            <div id="kpi-ger-leadtime" style="font-size:1.8rem; font-weight:800; color:#0284c7; margin-top:4px;">0.0 días</div>
+          </div>
+          <div class="card" style="padding:16px 20px;">
+            <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Prendas Finalizadas</div>
+            <div id="kpi-ger-finalizadas" style="font-size:1.8rem; font-weight:800; color:var(--success); margin-top:4px;">0 uds</div>
+          </div>
+          <div class="card" style="padding:16px 20px;">
+            <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Ritmo Diario Fabril</div>
+            <div id="kpi-ger-ritmo-diario" style="font-size:1.8rem; font-weight:800; color:#d97706; margin-top:4px;">0 uds/día</div>
+          </div>
+        </div>
+
+        <!-- Tabla Maestra de Órdenes y Tiempos de Producción (con barra in-cell) -->
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="layers" class="title-icon" style="color:var(--mod-ger-primary);"></i>
+              <span>Control de Órdenes y Tiempos de Producción</span>
+            </div>
+            <span id="badge-total-ordenes-ger" style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">0 órdenes</span>
+          </div>
+
+          <div class="table-responsive">
+            <table class="efficiency-table" style="min-width: 100%;">
+              <thead>
+                <tr>
+                  <th style="text-align: left !important; padding-left: 14px;">ID_Orden</th>
+                  <th style="text-align: left !important;">Referencia</th>
+                  <th>Estado</th>
+                  <th>Duración / Lead Time</th>
+                  <th>Cantidad Total</th>
+                  <th>Prendas Terminadas</th>
+                  <th style="min-width: 150px;">% Avance</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-ger-ordenes"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- GRID 2 COLUMNAS: DÍAS DE FABRICACIÓN + DONA DE ESTADOS -->
+        <div class="grid-responsive-2">
+          
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="calendar-clock" class="title-icon" style="color:#0284c7;"></i>
+                <span>Días de Fabricación por Referencia</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-dias-ref"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
+                <i data-lucide="pie-chart" class="title-icon" style="color:#059669;"></i>
+                <span>Distribución de Órdenes por Estado</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-estados"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
     </section>
 
     <!-- ============================================================== -->
@@ -829,6 +1076,28 @@
       <div style="display:flex; gap:10px; margin-top:20px;">
         <button class="btn btn-secondary" style="flex:1;" onclick="cerrarModalEditSAM()">Cancelar</button>
         <button class="btn btn-primary" style="flex:1;" onclick="guardarEdicionSAM()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: DESBLOQUEO CON PIN DE GERENCIA (ANALÍTICA BI)           -->
+  <!-- ============================================================== -->
+  <div id="modal-gerencial-pin" class="modal-overlay">
+    <div class="modal-card">
+      <h3 style="font-size:1.2rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+        <i data-lucide="shield-alert" style="color:var(--mod-ger-primary);"></i> Acceso Gerencial y BI
+      </h3>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:18px;">
+        Ingresa el PIN de seguridad gerencial para visualizar los indicadores de eficiencia global, minutos perdidos, horas/hombre y lead times.
+      </p>
+      <div class="form-group">
+        <label for="gerencial-pin-input">PIN Gerencial (Por defecto: 2026)</label>
+        <input type="password" id="gerencial-pin-input" maxlength="8" placeholder="••••" style="text-align:center; font-size:1.6rem; letter-spacing:10px;" onkeypress="if(event.key === 'Enter') validarGerencialPin()">
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="cerrarModalGerencialPin()">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="validarGerencialPin()">Desbloquear</button>
       </div>
     </div>
   </div>

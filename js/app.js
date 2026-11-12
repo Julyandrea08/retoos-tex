@@ -34,6 +34,9 @@ const appState = {
   subRegistroActivo: "costura", // "costura" o "terminadas"
   isAdmin: false,
   adminPin: "1234",
+  isGerente: false,
+  gerentePin: "2026",
+  charts: {},
   prendasImportBuffer: null,
   operariasImportBuffer: null
 };
@@ -53,6 +56,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     if (localStorage.getItem("retoos_is_admin") === "true") {
       activarModoAdmin(true, false);
+    }
+    if (localStorage.getItem("retoos_is_gerente") === "true") {
+      appState.isGerente = true;
     }
 
     // Listener para botón flotante "Volver Arriba" en Admin
@@ -84,6 +90,10 @@ function switchView(viewId) {
     abrirModalAdminPin();
     return;
   }
+  if (viewId === "gerencial" && !appState.isGerente) {
+    abrirModalGerencialPin();
+    return;
+  }
 
   // Actualizar vistas
   document.querySelectorAll(".app-view").forEach(v => v.classList.remove("active"));
@@ -108,6 +118,8 @@ function switchView(viewId) {
 
     // Actualización silenciosa en segundo plano sin congelar la pantalla
     actualizarDashboard(false);
+  } else if (viewId === "gerencial") {
+    cargarDatosGerenciales();
   } else if (viewId === "admin") {
     cargarDatosAdmin();
   }
@@ -1875,4 +1887,704 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ==============================================================================
+// 8. MÓDULO DE ANALÍTICA GERENCIAL & BI (PROTEGIDO CON CONTRASEÑA)
+// ==============================================================================
+function abrirModalGerencialPin() {
+  const modal = document.getElementById("modal-gerencial-pin");
+  if (modal) {
+    modal.classList.add("open");
+    const input = document.getElementById("gerencial-pin-input");
+    if (input) {
+      input.value = "";
+      input.focus();
+    }
+  }
+}
+
+function cerrarModalGerencialPin() {
+  const modal = document.getElementById("modal-gerencial-pin");
+  if (modal) modal.classList.remove("open");
+}
+
+function validarGerencialPin() {
+  const pin = document.getElementById("gerencial-pin-input")?.value;
+  if (pin === appState.gerentePin) {
+    cerrarModalGerencialPin();
+    appState.isGerente = true;
+    localStorage.setItem("retoos_is_gerente", "true");
+    switchView("gerencial");
+    showToast("✓ Acceso Gerencial y BI Desbloqueado", "success");
+  } else {
+    showToast("PIN incorrecto. (Por defecto: 2026)", "error");
+  }
+}
+
+function bloquearModoGerencial() {
+  appState.isGerente = false;
+  localStorage.removeItem("retoos_is_gerente");
+  switchView("dashboard");
+  showToast("Modo Gerencial bloqueado con éxito", "info");
+}
+
+function switchGerencialSubTab(subTab) {
+  document.querySelectorAll(".ger-pane").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".ger-subnav-btn").forEach(b => b.classList.remove("active"));
+
+  const targetPane = document.getElementById(`ger-pane-${subTab}`);
+  const targetBtn = document.getElementById(`btn-ger-tab-${subTab}`);
+
+  if (targetPane) targetPane.classList.add("active");
+  if (targetBtn) targetBtn.classList.add("active");
+  lucide.createIcons();
+}
+
+function aplicarFiltrosGerenciales() {
+  cargarDatosGerenciales();
+}
+
+async function cargarDatosGerenciales() {
+  try {
+    const periodo = document.getElementById("ger-filter-periodo")?.value || "semana";
+    const operariaFiltro = document.getElementById("ger-filter-operaria")?.value || "";
+    const empresaId = appState.empresa?.id;
+
+    if (!empresaId) return;
+
+    // Calcular fecha inicial según periodo
+    const hoy = new Date();
+    let fechaInicioStr = null;
+
+    if (periodo === "hoy") {
+      fechaInicioStr = hoy.toISOString().split("T")[0];
+    } else if (periodo === "semana") {
+      const d = new Date(hoy);
+      const diaSemana = d.getDay(); // 0 dom, 1 lun...
+      const diff = d.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
+      const lunes = new Date(d.setDate(diff));
+      fechaInicioStr = lunes.toISOString().split("T")[0];
+    } else if (periodo === "mes") {
+      const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      fechaInicioStr = primerDia.toISOString().split("T")[0];
+    }
+
+    // Consulta de registros de producción en el periodo
+    let qRegistros = getDb()
+      .from("registros_produccion")
+      .select(`
+        id, fecha, hora_turno, cantidad, minutos_ganados,
+        orden_id,
+        ordenes_produccion(numero_op, cantidad_programada, prendas_terminadas, created_at, estado, prendas(referencia)),
+        operaria_id,
+        operarias(id, codigo_operaria, nombre, modulo_linea),
+        operaciones_prenda(codigo_operacion, nombre_operacion, sam)
+      `)
+      .eq("empresa_id", empresaId);
+
+    if (fechaInicioStr) {
+      qRegistros = qRegistros.gte("fecha", fechaInicioStr);
+    }
+    if (operariaFiltro) {
+      qRegistros = qRegistros.eq("operaria_id", operariaFiltro);
+    }
+
+    // Consulta de órdenes maestras
+    let qOrdenes = getDb()
+      .from("ordenes_produccion")
+      .select("*, prendas(referencia, sam_total)")
+      .eq("empresa_id", empresaId)
+      .order("created_at", { ascending: false });
+
+    const [resReg, resOrd] = await Promise.all([
+      qRegistros.order("fecha", { ascending: true }),
+      qOrdenes
+    ]);
+
+    const registros = resReg.data || [];
+    const ordenes = resOrd.data || appState.ordenes || [];
+
+    // Llenar select de operarias si está vacío
+    poblarSelectOperariasGerencial();
+
+    // 1. Renderizar Pantalla 1: Control de Operaciones
+    renderizarPantallaOperacionesGerencial(registros);
+
+    // 2. Renderizar Pantalla 2: Control de Órdenes
+    renderizarPantallaOrdenesGerencial(ordenes);
+
+  } catch (err) {
+    console.error("Error al cargar analítica gerencial:", err);
+    showToast("Error al cargar BI: " + err.message, "error");
+  } finally {
+    lucide.createIcons();
+  }
+}
+
+function poblarSelectOperariasGerencial() {
+  const sel = document.getElementById("ger-filter-operaria");
+  if (!sel || sel.children.length > 1) return;
+
+  appState.operarias.forEach(op => {
+    const opt = document.createElement("option");
+    opt.value = op.id;
+    opt.textContent = `${op.nombre} (${op.codigo_operaria || op.modulo_linea || ''})`;
+    sel.appendChild(opt);
+  });
+}
+
+function renderizarPantallaOperacionesGerencial(registros) {
+  // Cálculos consolidados
+  const totalMinSAM = registros.reduce((acc, r) => acc + Number(r.minutos_ganados || 0), 0);
+  const totalPrendas = registros.reduce((acc, r) => acc + Number(r.cantidad || 0), 0);
+  
+  const operariasIds = new Set(registros.map(r => r.operaria_id).filter(Boolean));
+  const operariasActivas = operariasIds.size;
+
+  // Horas/Hombre reales por bloques trabajados (cada bloque fecha_hora es 1 hora de labor)
+  const bloquesSet = new Set(registros.map(r => `${r.operaria_id}_${r.fecha}_${r.hora_turno}`));
+  const horasHombre = bloquesSet.size || (operariasActivas * 8);
+  const minutosDisponibles = horasHombre * 60;
+
+  const eficienciaGlobal = minutosDisponibles > 0 ? (totalMinSAM / minutosDisponibles) * 100 : 0;
+  const minutosPerdidos = Math.max(0, minutosDisponibles - totalMinSAM);
+  const prendasHora = horasHombre > 0 ? (totalPrendas / horasHombre) : 0;
+
+  // Actualizar Scorecards en DOM
+  const kpiEfic = document.getElementById("kpi-ger-eficiencia");
+  const cardBig = document.getElementById("card-ger-eficiencia-global");
+
+  if (kpiEfic) kpiEfic.textContent = `${eficienciaGlobal.toFixed(1)} %`;
+  if (cardBig) {
+    cardBig.className = "ger-big-kpi-card";
+    if (eficienciaGlobal >= 85) cardBig.classList.add("alta");
+    else if (eficienciaGlobal >= 60) cardBig.classList.add("media");
+    else cardBig.classList.add("baja");
+  }
+
+  const kpiMinSam = document.getElementById("kpi-ger-min-sam");
+  if (kpiMinSam) {
+    kpiMinSam.textContent = totalMinSAM >= 1000 
+      ? `${(totalMinSAM / 1000).toFixed(1)} mil` 
+      : `${totalMinSAM.toFixed(0)} min`;
+  }
+
+  const kpiPrendas = document.getElementById("kpi-ger-prendas-tot");
+  if (kpiPrendas) kpiPrendas.textContent = totalPrendas.toLocaleString();
+
+  const kpiOpsAct = document.getElementById("kpi-ger-operarias-act");
+  if (kpiOpsAct) kpiOpsAct.textContent = operariasActivas.toString();
+
+  const kpiMinPerd = document.getElementById("kpi-ger-min-perdidos");
+  if (kpiMinPerd) {
+    kpiMinPerd.textContent = minutosPerdidos >= 1000 
+      ? `${(minutosPerdidos / 1000).toFixed(1)} mil` 
+      : `${minutosPerdidos.toFixed(0)} min`;
+  }
+
+  const kpiHorasHombre = document.getElementById("kpi-ger-horas-hombre");
+  if (kpiHorasHombre) {
+    kpiHorasHombre.textContent = horasHombre >= 1000 
+      ? `${(horasHombre / 1000).toFixed(1)} mil` 
+      : horasHombre.toFixed(1);
+  }
+
+  const kpiPrendasHora = document.getElementById("kpi-ger-prendas-hora");
+  if (kpiPrendasHora) kpiPrendasHora.textContent = prendasHora.toFixed(1);
+
+  // Calcular eficiencias por operaria para Gráfica 1 y Semáforo Dona
+  const statsPorOperaria = {};
+  registros.forEach(r => {
+    const id = r.operaria_id;
+    if (!id) return;
+    if (!statsPorOperaria[id]) {
+      const opInfo = appState.operarias.find(o => o.id === id);
+      statsPorOperaria[id] = {
+        nombre: opInfo?.nombre || r.operarias?.nombre || "Operaria",
+        minSAM: 0,
+        bloques: new Set()
+      };
+    }
+    statsPorOperaria[id].minSAM += Number(r.minutos_ganados || 0);
+    statsPorOperaria[id].bloques.add(`${r.fecha}_${r.hora_turno}`);
+  });
+
+  const rankingOperarias = Object.values(statsPorOperaria).map(item => {
+    const horas = item.bloques.size || 1;
+    const disp = horas * 60;
+    const eff = disp > 0 ? (item.minSAM / disp) * 100 : 0;
+    return {
+      nombre: item.nombre.split(" ")[0], // primer nombre para que quepa limpio como en la imagen
+      nombreCompleto: item.nombre,
+      eficiencia: Math.min(Math.round(eff * 10) / 10, 150)
+    };
+  }).sort((a, b) => b.eficiencia - a.eficiencia);
+
+  // Renderizar Gráfica 1: Eficiencia por Operario con Línea Meta 85%
+  renderChartOperarias(rankingOperarias);
+
+  // Renderizar Gráfica 2: Tendencia Diaria con Meta 85%
+  renderChartTendenciaDiaria(registros);
+
+  // Renderizar Gráfica 3: Semáforo de Desempeño (Dona)
+  renderChartSemaforo(rankingOperarias);
+}
+
+function renderChartOperarias(ranking) {
+  const canvas = document.getElementById("chart-ger-operarias");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.operarias) {
+    appState.charts.operarias.destroy();
+  }
+
+  const labels = ranking.map(r => r.nombre);
+  const data = ranking.map(r => r.eficiencia);
+  const metaLine = labels.map(() => 85);
+
+  appState.charts.operarias = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Meta 85%",
+          data: metaLine,
+          type: "line",
+          borderColor: "#ef4444",
+          borderWidth: 2,
+          borderDash: [6, 6],
+          pointRadius: 0,
+          fill: false,
+          order: 1
+        },
+        {
+          label: "Eficiencia %",
+          data: data,
+          backgroundColor: "#38bdf8",
+          hoverBackgroundColor: "#0284c7",
+          borderRadius: 4,
+          order: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%`
+          }
+        }
+      },
+      scales: {
+        y: {
+          min: 0,
+          max: 100,
+          ticks: { callback: (v) => v + "%" },
+          grid: { color: "#f1f5f9" }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11, family: "Outfit" } }
+        }
+      }
+    }
+  });
+}
+
+function renderChartTendenciaDiaria(registros) {
+  const canvas = document.getElementById("chart-ger-tendencia");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.tendencia) {
+    appState.charts.tendencia.destroy();
+  }
+
+  // Agrupar por fecha
+  const porFecha = {};
+  registros.forEach(r => {
+    const f = r.fecha;
+    if (!f) return;
+    if (!porFecha[f]) {
+      porFecha[f] = { minSAM: 0, bloques: new Set() };
+    }
+    porFecha[f].minSAM += Number(r.minutos_ganados || 0);
+    porFecha[f].bloques.add(`${r.operaria_id}_${r.hora_turno}`);
+  });
+
+  const fechasOrdenadas = Object.keys(porFecha).sort();
+  const labels = fechasOrdenadas.map(f => {
+    const parts = f.split("-");
+    return `${parts[2]}/${parts[1]}`;
+  });
+
+  const dataEff = fechasOrdenadas.map(f => {
+    const item = porFecha[f];
+    const horas = item.bloques.size || 1;
+    const disp = horas * 60;
+    return disp > 0 ? Math.round(((item.minSAM / disp) * 100) * 10) / 10 : 0;
+  });
+
+  const metaLine = labels.map(() => 85);
+
+  appState.charts.tendencia = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Meta 85%",
+          data: metaLine,
+          borderColor: "#ef4444",
+          borderWidth: 1.5,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          fill: false
+        },
+        {
+          label: "Eficiencia Diaria %",
+          data: dataEff,
+          borderColor: "#ec4899",
+          backgroundColor: "rgba(236, 72, 153, 0.12)",
+          borderWidth: 2.5,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+          pointBackgroundColor: "#ec4899"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%`
+          }
+        }
+      },
+      scales: {
+        y: {
+          min: 0,
+          max: 100,
+          ticks: { callback: (v) => v + "%" },
+          grid: { color: "#f1f5f9" }
+        },
+        x: {
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function renderChartSemaforo(ranking) {
+  const canvas = document.getElementById("chart-ger-semaforo");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.semaforo) {
+    appState.charts.semaforo.destroy();
+  }
+
+  let baja = 0;   // < 60%
+  let media = 0;  // 60% - 84.9%
+  let alta = 0;   // >= 85%
+
+  ranking.forEach(r => {
+    if (r.eficiencia >= 85) alta++;
+    else if (r.eficiencia >= 60) media++;
+    else baja++;
+  });
+
+  const total = ranking.length || 1;
+
+  appState.charts.semaforo = new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: ["Baja (<60%)", "Media (60%-84%)", "Alta (>=85%)"],
+      datasets: [
+        {
+          data: [baja, media, alta],
+          backgroundColor: ["#f87171", "#fbbf24", "#34d399"],
+          borderWidth: 2,
+          borderColor: "#ffffff"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { font: { size: 11, family: "Outfit" }, boxWidth: 12 }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.raw;
+              const pct = Math.round((val / total) * 100);
+              return `${ctx.label}: ${val} operarias (${pct}%)`;
+            }
+          }
+        }
+      },
+      cutout: "68%"
+    }
+  });
+}
+
+function renderizarPantallaOrdenesGerencial(ordenes) {
+  // Scorecards de Pantalla 2
+  const totalMeta = ordenes.reduce((acc, o) => acc + Number(o.cantidad_programada || 0), 0);
+  const totalTerm = ordenes.reduce((acc, o) => acc + Number(o.prendas_terminadas || 0), 0);
+  const cumplimiento = totalMeta > 0 ? (totalTerm / totalMeta) * 100 : 0;
+
+  // Lead Time promedio en días
+  const ahora = new Date();
+  let sumaDias = 0;
+  let ordenesConFecha = 0;
+
+  ordenes.forEach(o => {
+    if (o.created_at) {
+      const creada = new Date(o.created_at);
+      const diffMs = ahora - creada;
+      const dias = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      sumaDias += dias;
+      ordenesConFecha++;
+    }
+  });
+
+  const leadTimePromedio = ordenesConFecha > 0 ? (sumaDias / ordenesConFecha).toFixed(1) : "0.0";
+  const ritmoDiario = (Number(leadTimePromedio) > 0 ? (totalTerm / Number(leadTimePromedio)) : totalTerm).toFixed(1);
+
+  document.getElementById("kpi-ger-cumplimiento").textContent = `${cumplimiento.toFixed(1)} %`;
+  document.getElementById("kpi-ger-leadtime").textContent = `${leadTimePromedio} días`;
+  document.getElementById("kpi-ger-finalizadas").textContent = totalTerm >= 1000 
+    ? `${(totalTerm / 1000).toFixed(1)} mil` 
+    : totalTerm.toLocaleString();
+  document.getElementById("kpi-ger-ritmo-diario").textContent = `${ritmoDiario} uds/d`;
+
+  document.getElementById("badge-total-ordenes-ger").textContent = `${ordenes.length} órdenes registradas`;
+
+  // Tabla Maestra de Órdenes (con barra in-cell)
+  const tbody = document.getElementById("tbody-ger-ordenes");
+  tbody.innerHTML = "";
+
+  if (ordenes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-message">No hay órdenes para mostrar.</td></tr>';
+  } else {
+    ordenes.forEach(ord => {
+      const meta = ord.cantidad_programada || 1;
+      const term = ord.prendas_terminadas || 0;
+      const pct = Math.round((term / meta) * 100);
+      const pctCapped = Math.min(pct, 100);
+
+      let duracionTexto = "1 d";
+      if (ord.created_at) {
+        const diffD = Math.max(1, Math.round((ahora - new Date(ord.created_at)) / (1000 * 60 * 60 * 24)));
+        duracionTexto = `${diffD} d`;
+      }
+
+      tbody.insertAdjacentHTML("beforeend", `
+        <tr>
+          <td style="font-weight:700; color:var(--mod-ger-primary);">${escapeHtml(ord.numero_op)}</td>
+          <td style="font-weight:600;">${escapeHtml(ord.prendas?.referencia || "Sin ref")}</td>
+          <td><span class="status-pill ${ord.estado}">${ord.estado.toUpperCase()}</span></td>
+          <td>${duracionTexto}</td>
+          <td>${meta.toLocaleString()}</td>
+          <td>${term.toLocaleString()}</td>
+          <td>
+            <div class="table-progress-cell">
+              <div class="table-progress-bar">
+                <div class="table-progress-fill" style="width:${pctCapped}%;"></div>
+              </div>
+              <span style="font-size:0.8rem; font-weight:700; width:45px; text-align:right;">${pct}%</span>
+            </div>
+          </td>
+        </tr>
+      `);
+    });
+  }
+
+  // Gráfica Días por Referencia (Barras Horizontales)
+  renderChartDiasReferencia(ordenes);
+
+  // Gráfica Distribución por Estado (Dona)
+  renderChartEstadosOrdenes(ordenes);
+}
+
+function renderChartDiasReferencia(ordenes) {
+  const canvas = document.getElementById("chart-ger-dias-ref");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.diasRef) {
+    appState.charts.diasRef.destroy();
+  }
+
+  const ahora = new Date();
+  const diasPorRef = {};
+
+  ordenes.forEach(o => {
+    const ref = o.prendas?.referencia || "Sin ref";
+    const diffD = o.created_at 
+      ? Math.max(1, Math.round((ahora - new Date(o.created_at)) / (1000 * 60 * 60 * 24)))
+      : 1;
+
+    if (!diasPorRef[ref] || diffD > diasPorRef[ref]) {
+      diasPorRef[ref] = diffD;
+    }
+  });
+
+  const refsOrdenadas = Object.keys(diasPorRef)
+    .sort((a, b) => diasPorRef[b] - diasPorRef[a])
+    .slice(0, 7); // Top 7 prendas
+
+  const labels = refsOrdenadas.map(r => r.length > 20 ? r.substring(0, 18) + "..." : r);
+  const data = refsOrdenadas.map(r => diasPorRef[r]);
+
+  appState.charts.diasRef = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Días de Fabricación",
+          data: data,
+          backgroundColor: "#1e3a8a",
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          ticks: { callback: (v) => v + " d" },
+          grid: { color: "#f1f5f9" }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 10, family: "Outfit" } }
+        }
+      }
+    }
+  });
+}
+
+function renderChartEstadosOrdenes(ordenes) {
+  const canvas = document.getElementById("chart-ger-estados");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.estados) {
+    appState.charts.estados.destroy();
+  }
+
+  let finalizadas = 0;
+  let activas = 0;
+  let pausadas = 0;
+
+  ordenes.forEach(o => {
+    if (o.estado === "finalizada") finalizadas++;
+    else if (o.estado === "activa") activas++;
+    else pausadas++;
+  });
+
+  const total = ordenes.length || 1;
+
+  appState.charts.estados = new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: ["Finalizada", "Activa", "Pausada"],
+      datasets: [
+        {
+          data: [finalizadas, activas, pausadas],
+          backgroundColor: ["#10b981", "#ec4899", "#f59e0b"],
+          borderWidth: 2,
+          borderColor: "#ffffff"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { font: { size: 11, family: "Outfit" }, boxWidth: 12 }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.raw;
+              const pct = Math.round((val / total) * 100);
+              return `${ctx.label}: ${val} (${pct}%)`;
+            }
+          }
+        }
+      },
+      cutout: "68%"
+    }
+  });
+}
+
+// Exportar Reporte Ejecutivo a Excel
+function exportarReporteGerencialExcel() {
+  try {
+    const eficTexto = document.getElementById("kpi-ger-eficiencia")?.textContent || "0%";
+    const minSamTexto = document.getElementById("kpi-ger-min-sam")?.textContent || "0";
+    const prendasTotTexto = document.getElementById("kpi-ger-prendas-tot")?.textContent || "0";
+    const opsActTexto = document.getElementById("kpi-ger-operarias-act")?.textContent || "0";
+    const minPerdTexto = document.getElementById("kpi-ger-min-perdidos")?.textContent || "0";
+
+    const kpiData = [
+      ["REPORTE EJECUTIVO GERENCIAL - RETOOS TEX"],
+      ["Generado:", new Date().toLocaleString()],
+      [],
+      ["Indicador", "Valor"],
+      ["Eficiencia Global de Planta", eficTexto],
+      ["Minutos SAM Ganados", minSamTexto],
+      ["Prendas Totales Confeccionadas", prendasTotTexto],
+      ["Operarias Activas", opsActTexto],
+      ["Minutos Perdidos", minPerdTexto]
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const wsKpis = XLSX.utils.aoa_to_sheet(kpiData);
+    XLSX.utils.book_append_sheet(wb, wsKpis, "KPIs_Generales");
+
+    // Hoja de Órdenes
+    const ordenesFilas = [["Numero_OP", "Referencia", "Estado", "Meta", "Terminadas", "% Avance"]];
+    appState.ordenes.forEach(o => {
+      const meta = o.cantidad_programada || 0;
+      const term = o.prendas_terminadas || 0;
+      const pct = meta > 0 ? ((term / meta) * 100).toFixed(1) + "%" : "0%";
+      ordenesFilas.push([
+        o.numero_op,
+        o.prendas?.referencia || "Sin ref",
+        o.estado,
+        meta,
+        term,
+        pct
+      ]);
+    });
+    const wsOrdenes = XLSX.utils.aoa_to_sheet(ordenesFilas);
+    XLSX.utils.book_append_sheet(wb, wsOrdenes, "Control_Ordenes");
+
+    XLSX.writeFile(wb, `Reporte_Gerencial_RetoOS_Tex_${new Date().toISOString().split("T")[0]}.xlsx`);
+    showToast("✓ Reporte ejecutivo descargado en Excel", "success");
+  } catch (err) {
+    showToast("Error al exportar reporte: " + err.message, "error");
+  }
 }
