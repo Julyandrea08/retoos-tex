@@ -527,8 +527,17 @@
           </button>
         </form>
 
-        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Órdenes Registradas</h4>
-        <div id="admin-ordenes-list"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
+            <i data-lucide="list" style="width:18px;height:18px;color:var(--mod-adm-primary);"></i> Órdenes Registradas
+          </h4>
+          <div style="position:relative; width:280px; max-width:100%;">
+            <input type="text" id="admin-search-ordenes" placeholder="🔍 Buscar OP o referencia..." 
+                   oninput="filtrarListaAdminOrdenes(this.value)" 
+                   style="height:36px; padding:0 12px; font-size:0.84rem; border-radius:8px; border:1px solid var(--border-color); width:100%;">
+          </div>
+        </div>
+        <div id="admin-ordenes-list" class="admin-compact-list"></div>
       </div>
 
       <!-- RECUADRO AISLADO 2: OPERARIAS / MÁSTER PERSONAL -->
@@ -600,8 +609,17 @@
           </button>
         </form>
 
-        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Personal Registrado</h4>
-        <div id="admin-operarias-list"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
+            <i data-lucide="users" style="width:18px;height:18px;color:#0284c7;"></i> Personal Registrado
+          </h4>
+          <div style="position:relative; width:280px; max-width:100%;">
+            <input type="text" id="admin-search-operarias" placeholder="🔍 Buscar operaria o módulo..." 
+                   oninput="filtrarListaAdminOperarias(this.value)" 
+                   style="height:36px; padding:0 12px; font-size:0.84rem; border-radius:8px; border:1px solid var(--border-color); width:100%;">
+          </div>
+        </div>
+        <div id="admin-operarias-list" class="admin-compact-list"></div>
       </div>
 
       <!-- RECUADRO AISLADO 3: PRENDAS Y OPERACIONES SAM -->

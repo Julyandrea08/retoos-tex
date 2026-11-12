@@ -1068,38 +1068,72 @@ function calcularProyeccionEntregaEnForm() {
   document.getElementById("cap-calc-dias").textContent = `${diasEstimados} días hábiles`;
 }
 
-// 7.1 Órdenes de Producción
-function renderAdminOrdenes() {
+// 7.1 Órdenes de Producción (Listado Horizontal Compacto - 1 Sola Fila)
+function renderAdminOrdenes(filtroTexto = "") {
   const list = document.getElementById("admin-ordenes-list");
+  if (!list) return;
   list.innerHTML = "";
 
-  if (appState.ordenes.length === 0) {
-    list.innerHTML = '<p class="empty-message">No hay órdenes registradas.</p>';
+  let ordenes = appState.ordenes;
+  if (filtroTexto && filtroTexto.trim()) {
+    const q = filtroTexto.trim().toLowerCase();
+    ordenes = ordenes.filter(ord => 
+      (ord.numero_op && ord.numero_op.toLowerCase().includes(q)) ||
+      (ord.prendas?.referencia && ord.prendas.referencia.toLowerCase().includes(q))
+    );
+  }
+
+  if (ordenes.length === 0) {
+    list.innerHTML = '<p class="empty-message">No se encontraron órdenes registradas.</p>';
     return;
   }
 
-  appState.ordenes.forEach(ord => {
+  ordenes.forEach(ord => {
     const meta = ord.cantidad_programada || 0;
+    const terminadas = ord.prendas_terminadas || 0;
     const samTotal = ord.prendas?.sam_total || 0;
     const minTotales = (meta * samTotal).toFixed(0);
+    const pct = meta > 0 ? Math.round((terminadas / meta) * 100) : 0;
+    const estado = ord.estado || "activa";
 
     list.insertAdjacentHTML("beforeend", `
-      <div class="data-list-item" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <div style="display:flex; justify-content:space-between; width:100%;">
-          <h5><strong>${escapeHtml(ord.numero_op)}</strong> &bull; <span style="color:var(--mod-adm-primary);">${escapeHtml(ord.prendas?.referencia || '')}</span></h5>
-          <span class="status-pill ${ord.estado}">${ord.estado.toUpperCase()}</span>
+      <div class="admin-strip-row">
+        <div class="admin-strip-left">
+          <span class="admin-strip-badge">[${escapeHtml(ord.numero_op)}]</span>
+          <span class="admin-strip-title">${escapeHtml(ord.prendas?.referencia || "Sin prenda")}</span>
+          <div class="admin-strip-metrics">
+            <span>&bull; Meta: <strong>${meta.toLocaleString()}</strong></span>
+            <span>&bull; Uds: <strong>${terminadas.toLocaleString()}</strong> (${pct}%)</span>
+            <span>&bull; SAM: <strong>${samTotal} min</strong></span>
+            <span>&bull; Carga: <strong>${Number(minTotales).toLocaleString()} min</strong></span>
+          </div>
+          <span class="admin-strip-status ${estado}">${estado.toUpperCase()}</span>
         </div>
-        <p style="font-size:0.82rem; color:var(--text-muted);">
-          Meta: <strong>${meta} uds</strong> &bull; Terminadas: <strong>${ord.prendas_terminadas || 0}</strong> &bull; Carga Fabril: <strong>${minTotales} min SAM</strong>
-        </p>
-        <div style="display:flex; gap:8px; margin-top:4px;">
-          ${ord.estado !== 'activa' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'activa')">Activar</button>` : ''}
-          ${ord.estado === 'activa' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'pausada')">Pausar</button>` : ''}
-          ${ord.estado !== 'finalizada' ? `<button class="btn btn-secondary btn-sm" onclick="cambiarEstadoOP('${ord.id}', 'finalizada')">Finalizar</button>` : ''}
+        <div class="admin-strip-actions">
+          ${estado !== 'activa' ? `
+            <button class="btn-strip-action btn-action-activate" onclick="cambiarEstadoOP('${ord.id}', 'activa')">
+              <i data-lucide="play" style="width:13px;height:13px;"></i> Iniciar / Activar
+            </button>
+          ` : ''}
+          ${estado === 'activa' ? `
+            <button class="btn-strip-action btn-action-pause" onclick="cambiarEstadoOP('${ord.id}', 'pausada')">
+              <i data-lucide="pause" style="width:13px;height:13px;"></i> Pausar
+            </button>
+          ` : ''}
+          ${estado !== 'finalizada' ? `
+            <button class="btn-strip-action btn-action-finish" onclick="cambiarEstadoOP('${ord.id}', 'finalizada')">
+              <i data-lucide="check" style="width:13px;height:13px;"></i> Finalizar
+            </button>
+          ` : ''}
         </div>
       </div>
     `);
   });
+  lucide.createIcons();
+}
+
+function filtrarListaAdminOrdenes(val) {
+  renderAdminOrdenes(val);
 }
 
 async function crearNuevaOP(event) {
@@ -1163,30 +1197,57 @@ async function cambiarEstadoOP(id, nuevoEstado) {
   }
 }
 
-// 7.2 Personal / Operarias
-function renderAdminOperarias() {
+// 7.2 Personal / Operarias (Listado Horizontal Compacto - 1 Sola Fila)
+function renderAdminOperarias(filtroTexto = "") {
   const list = document.getElementById("admin-operarias-list");
+  if (!list) return;
   list.innerHTML = "";
 
-  if (appState.operarias.length === 0) {
-    list.innerHTML = '<p class="empty-message">No hay operarias registradas.</p>';
+  let operarias = appState.operarias;
+  if (filtroTexto && filtroTexto.trim()) {
+    const q = filtroTexto.trim().toLowerCase();
+    operarias = operarias.filter(op => 
+      (op.nombre && op.nombre.toLowerCase().includes(q)) ||
+      (op.codigo_operaria && op.codigo_operaria.toLowerCase().includes(q)) ||
+      (op.modulo_linea && op.modulo_linea.toLowerCase().includes(q))
+    );
+  }
+
+  if (operarias.length === 0) {
+    list.innerHTML = '<p class="empty-message">No se encontraron operarias registradas.</p>';
     return;
   }
 
-  appState.operarias.forEach(op => {
+  operarias.forEach(op => {
     const esActiva = op.estado === "activa";
+    const codigo = op.codigo_operaria || "S/C";
+    const modulo = op.modulo_linea || "Línea 1";
+
     list.insertAdjacentHTML("beforeend", `
-      <div class="data-list-item">
-        <div class="data-list-info">
-          <h5>${escapeHtml(op.nombre)} ${op.codigo_operaria ? `(${op.codigo_operaria})` : ''}</h5>
-          <p>Módulo: <strong>${escapeHtml(op.modulo_linea || 'Línea 1')}</strong> &bull; Estado: <span class="status-pill ${op.estado}">${op.estado}</span></p>
+      <div class="admin-strip-row">
+        <div class="admin-strip-left">
+          <span class="admin-strip-badge">[${escapeHtml(codigo)}]</span>
+          <span class="admin-strip-title">${escapeHtml(op.nombre)}</span>
+          <div class="admin-strip-metrics">
+            <span>&bull; Módulo: <strong>${escapeHtml(modulo)}</strong></span>
+          </div>
+          <span class="admin-strip-status ${op.estado}">${op.estado.toUpperCase()}</span>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="toggleEstadoOperaria('${op.id}', '${esActiva ? 'inactiva' : 'activa'}')">
-          ${esActiva ? 'Inactivar' : 'Reactivar'}
-        </button>
+        <div class="admin-strip-actions">
+          <button class="btn-strip-action ${esActiva ? 'btn-action-danger' : 'btn-action-activate'}" 
+                  onclick="toggleEstadoOperaria('${op.id}', '${esActiva ? 'inactiva' : 'activa'}')">
+            <i data-lucide="${esActiva ? 'user-x' : 'user-check'}" style="width:13px;height:13px;"></i> 
+            ${esActiva ? 'Inactivar' : 'Reactivar'}
+          </button>
+        </div>
       </div>
     `);
   });
+  lucide.createIcons();
+}
+
+function filtrarListaAdminOperarias(val) {
+  renderAdminOperarias(val);
 }
 
 async function crearNuevaOperaria(event) {

@@ -1100,3 +1100,171 @@ textarea {
   animation: spinSync 0.75s linear infinite;
   color: #38bdf8 !important;
 }
+
+/* ==============================================================================
+   14. LISTAS COMPACTAS TIPO TIRA HORIZONTAL (ADMIN ÓRDENES Y OPERARIAS)
+   ============================================================================== */
+.admin-compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.admin-compact-list::-webkit-scrollbar {
+  width: 6px;
+}
+.admin-compact-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.admin-strip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.admin-strip-row:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.admin-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.admin-strip-badge {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--mod-adm-primary);
+  white-space: nowrap;
+}
+
+.admin-strip-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-strip-metrics {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-strip-metrics strong {
+  color: var(--text-main);
+}
+
+.admin-strip-status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-strip-status.activa {
+  background: #ecfdf5;
+  color: #059669;
+}
+.admin-strip-status.pausada {
+  background: #fef3c7;
+  color: #d97706;
+}
+.admin-strip-status.finalizada {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.admin-strip-status.inactiva {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.admin-strip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-strip-action {
+  height: 32px;
+  padding: 0 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: #ffffff;
+  color: var(--text-main);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-strip-action:hover {
+  background: var(--bg-app);
+  border-color: var(--text-muted);
+}
+
+.btn-strip-action.btn-action-activate {
+  color: #059669;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+.btn-strip-action.btn-action-activate:hover {
+  background: #d1fae5;
+}
+
+.btn-strip-action.btn-action-pause {
+  color: #d97706;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.btn-strip-action.btn-action-pause:hover {
+  background: #fef3c7;
+}
+
+.btn-strip-action.btn-action-finish {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.btn-strip-action.btn-action-finish:hover {
+  background: #e2e8f0;
+}
+
+.btn-strip-action.btn-action-danger {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.btn-strip-action.btn-action-danger:hover {
+  background: #fee2e2;
+}
