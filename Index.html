@@ -382,8 +382,8 @@
           </div>
         </div>
 
-        <!-- Tarjetas KPI Resumen Totalizador (Punto 9) -->
-        <div class="grid-responsive-2" style="margin-bottom: 16px;">
+        <!-- Tarjetas KPI Resumen Totalizador & Calidad de Piso -->
+        <div class="grid-responsive-3" style="margin-bottom: 16px;">
           <div style="background: var(--bg-app); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 14px 18px;">
             <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Total Unidades Confeccionadas</div>
             <div id="kpi-total-unidades-detalle" style="font-size:1.6rem; font-weight:800; color:var(--mod-dash-primary); margin-top:4px;">0 unidades</div>
@@ -391,6 +391,10 @@
           <div style="background: var(--bg-app); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 14px 18px;">
             <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Total Minutos SAM Ganados</div>
             <div id="kpi-total-sam-detalle" style="font-size:1.6rem; font-weight:800; color:var(--mod-dash-accent); margin-top:4px;">0.0 min</div>
+          </div>
+          <div style="background: var(--bg-app); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 14px 18px;">
+            <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Calidad & Defectos de Piso</div>
+            <div id="kpi-total-calidad-detalle" style="font-size:1.6rem; font-weight:800; color:var(--danger); margin-top:4px;">0 def (0.0%)</div>
           </div>
         </div>
 
@@ -516,6 +520,44 @@
 
         </div>
 
+        <!-- PANEL DE AUDITORÍA & CONTROL DE CALIDAD (DEFECTOS POR FECHA) -->
+        <div class="card" style="margin-bottom: 24px; border-left: 4px solid var(--danger);">
+          <div class="card-title">
+            <div class="card-title-left">
+              <i data-lucide="shield-alert" class="title-icon" style="color:var(--danger);"></i>
+              <span>Auditoría de Calidad: Prendas Defectuosas por Fecha</span>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <span id="badge-ger-tasa-defectos" style="font-size:0.8rem; font-weight:700; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:4px 10px; border-radius:6px;">
+                Tasa de Defectos: 0.0%
+              </span>
+              <span id="badge-ger-total-defectos" style="font-size:0.8rem; font-weight:700; background:#f1f5f9; color:#475569; padding:4px 10px; border-radius:6px;">
+                Total Defectos: 0 uds
+              </span>
+            </div>
+          </div>
+          
+          <div class="grid-responsive-2">
+            <div>
+              <h5 style="font-size:0.85rem; font-weight:700; margin-bottom:8px; color:var(--text-muted);">
+                Evolución Diaria de Defectos (Prendas No Conformes)
+              </h5>
+              <div style="position:relative; height:240px; width:100%;">
+                <canvas id="chart-ger-defectos-fecha"></canvas>
+              </div>
+            </div>
+
+            <div>
+              <h5 style="font-size:0.85rem; font-weight:700; margin-bottom:8px; color:var(--text-muted);">
+                Distribución por Motivo de Defecto (Pareto)
+              </h5>
+              <div style="position:relative; height:240px; width:100%;">
+                <canvas id="chart-ger-motivos-defecto"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- GRÁFICO PRINCIPAL: EFICIENCIA POR OPERARIA (BARRAS CON LÍNEA META 85%) -->
         <div class="card" style="margin-bottom: 24px;">
           <div class="card-title">
@@ -607,10 +649,12 @@
                   <th style="text-align: left !important; padding-left: 14px;">ID_Orden</th>
                   <th style="text-align: left !important;">Referencia</th>
                   <th>Estado</th>
-                  <th>Duración / Lead Time</th>
-                  <th>Cantidad Total</th>
-                  <th>Prendas Terminadas</th>
-                  <th style="min-width: 150px;">% Avance</th>
+                  <th>Duración</th>
+                  <th>Meta</th>
+                  <th>Terminadas</th>
+                  <th style="color:var(--danger);">Defectos</th>
+                  <th>% Merma</th>
+                  <th style="min-width: 130px;">% Avance</th>
                 </tr>
               </thead>
               <tbody id="tbody-ger-ordenes"></tbody>
@@ -618,14 +662,14 @@
           </div>
         </div>
 
-        <!-- GRID 2 COLUMNAS: DÍAS DE FABRICACIÓN + DONA DE ESTADOS -->
-        <div class="grid-responsive-2">
+        <!-- GRID 3 COLUMNAS: DÍAS DE FABRICACIÓN + DEFECTOS POR ORDEN + DONA DE ESTADOS -->
+        <div class="grid-responsive-3">
           
           <div class="card">
             <div class="card-title">
               <div class="card-title-left">
                 <i data-lucide="calendar-clock" class="title-icon" style="color:#0284c7;"></i>
-                <span>Días de Fabricación por Referencia</span>
+                <span>Días de Fabricación</span>
               </div>
             </div>
             <div style="position:relative; height:260px; width:100%;">
@@ -636,8 +680,20 @@
           <div class="card">
             <div class="card-title">
               <div class="card-title-left">
+                <i data-lucide="alert-triangle" class="title-icon" style="color:var(--danger);"></i>
+                <span>Defectos por Orden (OP)</span>
+              </div>
+            </div>
+            <div style="position:relative; height:260px; width:100%;">
+              <canvas id="chart-ger-defectos-orden"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left">
                 <i data-lucide="pie-chart" class="title-icon" style="color:#059669;"></i>
-                <span>Distribución de Órdenes por Estado</span>
+                <span>Distribución de Estados</span>
               </div>
             </div>
             <div style="position:relative; height:260px; width:100%;">

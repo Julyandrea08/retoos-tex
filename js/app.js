@@ -540,12 +540,14 @@ async function enviarFormularioTerminadas(event) {
     if (orden) orden.prendas_terminadas = nuevasTerminadas;
 
     // 2. Intentar guardar en tabla registros_prendas_terminadas (si existe en BD)
+    const hoyStr = new Date().toISOString().split("T")[0];
     try {
       await getDb()
         .from("registros_prendas_terminadas")
         .insert({
           empresa_id: appState.empresa.id,
           orden_id: ordenId,
+          fecha: hoyStr,
           hora_turno: horaTurno,
           cantidad_primeras: cantidadPrimeras,
           cantidad_defectos: cantidadDefectos,
@@ -560,6 +562,7 @@ async function enviarFormularioTerminadas(event) {
     // Guardar en estado local para reflejar inmediatamente en gráficas apiladas
     appState.registrosTerminadas.push({
       orden_id: ordenId,
+      fecha: hoyStr,
       hora_turno: horaTurno,
       cantidad_primeras: cantidadPrimeras,
       cantidad_defectos: cantidadDefectos,
@@ -933,6 +936,16 @@ function filtrarDetalleOperaciones() {
 
   document.getElementById("kpi-total-unidades-detalle").textContent = `${totalUnidadesSumadas} unidades`;
   document.getElementById("kpi-total-sam-detalle").textContent = `${totalMinutosSamSumados.toFixed(1)} min`;
+
+  const elemCalidad = document.getElementById("kpi-total-calidad-detalle");
+  if (elemCalidad) {
+    const totalDefectosHoy = appState.registrosTerminadas.reduce((acc, t) => acc + Number(t.cantidad_defectos || 0), 0);
+    const totalPrimerasHoy = appState.registrosTerminadas.reduce((acc, t) => acc + Number(t.cantidad_primeras || 0), 0);
+    const sumTotal = totalPrimerasHoy + totalDefectosHoy;
+    const pctMerma = sumTotal > 0 ? ((totalDefectosHoy / sumTotal) * 100).toFixed(1) : "0.0";
+    elemCalidad.textContent = `${totalDefectosHoy} def (${pctMerma}% merma)`;
+    elemCalidad.style.color = totalDefectosHoy > 0 ? "var(--danger)" : "var(--success)";
+  }
 
   if (registrosFiltrados.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-message">No hay operaciones registradas para este filtro.</td></tr>';
@@ -1997,22 +2010,48 @@ async function cargarDatosGerenciales() {
       .eq("empresa_id", empresaId)
       .order("created_at", { ascending: false });
 
-    const [resReg, resOrd] = await Promise.all([
+    // Consulta de prendas terminadas y calidad en el periodo
+    let qTerminadas = getDb()
+      .from("registros_prendas_terminadas")
+      .select("*")
+      .eq("empresa_id", empresaId);
+
+    if (fechaInicioStr) {
+      qTerminadas = qTerminadas.gte("fecha", fechaInicioStr);
+    }
+
+    const fetchTerminadasGer = async () => {
+      try {
+        const { data, error } = await qTerminadas.order("fecha", { ascending: true });
+        if (error || !data) {
+          console.warn("Consulta registros_prendas_terminadas con error o vacía, usando fallback local:", error);
+          return appState.registrosTerminadas || [];
+        }
+        return data;
+      } catch (e) {
+        console.warn("Tabla registros_prendas_terminadas no accesible en BI:", e);
+        return appState.registrosTerminadas || [];
+      }
+    };
+
+    const [resReg, resOrd, terminadasData] = await Promise.all([
       qRegistros.order("fecha", { ascending: true }),
-      qOrdenes
+      qOrdenes,
+      fetchTerminadasGer()
     ]);
 
     const registros = resReg.data || [];
     const ordenes = resOrd.data || appState.ordenes || [];
+    const terminadas = (terminadasData && terminadasData.length > 0) ? terminadasData : appState.registrosTerminadas;
 
     // Llenar select de operarias si está vacío
     poblarSelectOperariasGerencial();
 
-    // 1. Renderizar Pantalla 1: Control de Operaciones
-    renderizarPantallaOperacionesGerencial(registros);
+    // 1. Renderizar Pantalla 1: Control de Operaciones & Calidad por Fecha
+    renderizarPantallaOperacionesGerencial(registros, terminadas);
 
-    // 2. Renderizar Pantalla 2: Control de Órdenes
-    renderizarPantallaOrdenesGerencial(ordenes);
+    // 2. Renderizar Pantalla 2: Control de Órdenes & Defectos por OP
+    renderizarPantallaOrdenesGerencial(ordenes, terminadas);
 
   } catch (err) {
     console.error("Error al cargar analítica gerencial:", err);
@@ -2034,8 +2073,8 @@ function poblarSelectOperariasGerencial() {
   });
 }
 
-function renderizarPantallaOperacionesGerencial(registros) {
-  // Cálculos consolidados
+function renderizarPantallaOperacionesGerencial(registros, terminadas = []) {
+  // Cálculos consolidados de producción
   const totalMinSAM = registros.reduce((acc, r) => acc + Number(r.minutos_ganados || 0), 0);
   const totalPrendas = registros.reduce((acc, r) => acc + Number(r.cantidad || 0), 0);
   
@@ -2093,6 +2132,24 @@ function renderizarPantallaOperacionesGerencial(registros) {
   const kpiPrendasHora = document.getElementById("kpi-ger-prendas-hora");
   if (kpiPrendasHora) kpiPrendasHora.textContent = prendasHora.toFixed(1);
 
+  // CONTROL DE CALIDAD Y DEFECTOS POR FECHA
+  const totalPrimeras = terminadas.reduce((acc, t) => acc + Number(t.cantidad_primeras || 0), 0);
+  const totalDefectos = terminadas.reduce((acc, t) => acc + Number(t.cantidad_defectos || 0), 0);
+  const totalAuditadas = totalPrimeras + totalDefectos;
+  const tasaDefectos = totalAuditadas > 0 ? (totalDefectos / totalAuditadas) * 100 : 0;
+
+  const badgeTasa = document.getElementById("badge-ger-tasa-defectos");
+  if (badgeTasa) badgeTasa.textContent = `Tasa de Defectos: ${tasaDefectos.toFixed(1)}%`;
+
+  const badgeTotDef = document.getElementById("badge-ger-total-defectos");
+  if (badgeTotDef) badgeTotDef.textContent = `Total Defectos: ${totalDefectos.toLocaleString()} uds`;
+
+  // Renderizar Gráfica de Defectos por Fecha
+  renderChartDefectosPorFecha(terminadas);
+
+  // Renderizar Gráfica de Motivos de Defecto (Pareto)
+  renderChartMotivosDefecto(terminadas);
+
   // Calcular eficiencias por operaria para Gráfica 1 y Semáforo Dona
   const statsPorOperaria = {};
   registros.forEach(r => {
@@ -2129,6 +2186,147 @@ function renderizarPantallaOperacionesGerencial(registros) {
 
   // Renderizar Gráfica 3: Semáforo de Desempeño (Dona)
   renderChartSemaforo(rankingOperarias);
+}
+
+function renderChartDefectosPorFecha(terminadas) {
+  const canvas = document.getElementById("chart-ger-defectos-fecha");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.defectosFecha) {
+    appState.charts.defectosFecha.destroy();
+  }
+
+  // Agrupar por fecha
+  const porFecha = {};
+  terminadas.forEach(t => {
+    const f = t.fecha || new Date().toISOString().split("T")[0];
+    if (!porFecha[f]) {
+      porFecha[f] = { primeras: 0, defectos: 0 };
+    }
+    porFecha[f].primeras += Number(t.cantidad_primeras || 0);
+    porFecha[f].defectos += Number(t.cantidad_defectos || 0);
+  });
+
+  const fechas = Object.keys(porFecha).sort();
+  const labels = fechas.map(f => {
+    const parts = f.split("-");
+    return parts.length >= 3 ? `${parts[2]}/${parts[1]}` : f;
+  });
+
+  const dataDefectos = fechas.map(f => porFecha[f].defectos);
+  const dataTasa = fechas.map(f => {
+    const tot = porFecha[f].primeras + porFecha[f].defectos;
+    return tot > 0 ? Math.round((porFecha[f].defectos / tot) * 1000) / 10 : 0;
+  });
+
+  appState.charts.defectosFecha = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels.length ? labels : ["Sin registros"],
+      datasets: [
+        {
+          label: "Prendas Defectuosas (Uds)",
+          data: dataDefectos.length ? dataDefectos : [0],
+          backgroundColor: "#f87171",
+          hoverBackgroundColor: "#ef4444",
+          borderRadius: 4,
+          yAxisID: "y"
+        },
+        {
+          label: "% Tasa de Defecto",
+          data: dataTasa.length ? dataTasa : [0],
+          type: "line",
+          borderColor: "#d97706",
+          borderWidth: 2,
+          pointRadius: 3,
+          fill: false,
+          yAxisID: "y1"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { precision: 0 },
+          title: { display: true, text: "Uds Defectuosas", font: { size: 10 } },
+          grid: { color: "#f1f5f9" }
+        },
+        y1: {
+          position: "right",
+          beginAtZero: true,
+          ticks: { callback: v => v + "%" },
+          grid: { display: false }
+        },
+        x: {
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function renderChartMotivosDefecto(terminadas) {
+  const canvas = document.getElementById("chart-ger-motivos-defecto");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.motivosDefecto) {
+    appState.charts.motivosDefecto.destroy();
+  }
+
+  const motivosCount = {};
+  terminadas.forEach(t => {
+    const def = Number(t.cantidad_defectos || 0);
+    if (def > 0) {
+      const motivo = t.motivo_defecto && t.motivo_defecto !== "Sin defectos" 
+        ? t.motivo_defecto 
+        : "Otros defectos";
+      motivosCount[motivo] = (motivosCount[motivo] || 0) + def;
+    }
+  });
+
+  const labels = Object.keys(motivosCount);
+  const data = Object.values(motivosCount);
+  const total = data.reduce((a, b) => a + b, 0) || 1;
+
+  appState.charts.motivosDefecto = new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: labels.length ? labels : ["100% Primera Calidad"],
+      datasets: [
+        {
+          data: data.length ? data : [1],
+          backgroundColor: data.length 
+            ? ["#ef4444", "#f97316", "#f59e0b", "#8b5cf6", "#06b6d4", "#64748b"]
+            : ["#10b981"],
+          borderWidth: 2,
+          borderColor: "#ffffff"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { font: { size: 10, family: "Outfit" }, boxWidth: 10 }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.raw;
+              const pct = Math.round((val / total) * 100);
+              return `${ctx.label}: ${val} uds (${pct}%)`;
+            }
+          }
+        }
+      },
+      cutout: "64%"
+    }
+  });
 }
 
 function renderChartOperarias(ranking) {
@@ -2340,11 +2538,23 @@ function renderChartSemaforo(ranking) {
   });
 }
 
-function renderizarPantallaOrdenesGerencial(ordenes) {
+function renderizarPantallaOrdenesGerencial(ordenes, terminadas = []) {
   // Scorecards de Pantalla 2
   const totalMeta = ordenes.reduce((acc, o) => acc + Number(o.cantidad_programada || 0), 0);
   const totalTerm = ordenes.reduce((acc, o) => acc + Number(o.prendas_terminadas || 0), 0);
   const cumplimiento = totalMeta > 0 ? (totalTerm / totalMeta) * 100 : 0;
+
+  // Mapear defectos y primeras por orden
+  const defectosPorOrden = {};
+  terminadas.forEach(t => {
+    const oid = t.orden_id;
+    if (!oid) return;
+    if (!defectosPorOrden[oid]) {
+      defectosPorOrden[oid] = { primeras: 0, defectos: 0 };
+    }
+    defectosPorOrden[oid].primeras += Number(t.cantidad_primeras || 0);
+    defectosPorOrden[oid].defectos += Number(t.cantidad_defectos || 0);
+  });
 
   // Lead Time promedio en días
   const ahora = new Date();
@@ -2373,12 +2583,12 @@ function renderizarPantallaOrdenesGerencial(ordenes) {
 
   document.getElementById("badge-total-ordenes-ger").textContent = `${ordenes.length} órdenes registradas`;
 
-  // Tabla Maestra de Órdenes (con barra in-cell)
+  // Tabla Maestra de Órdenes (con columnas de Defectos y % Merma + barra in-cell)
   const tbody = document.getElementById("tbody-ger-ordenes");
   tbody.innerHTML = "";
 
   if (ordenes.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-message">No hay órdenes para mostrar.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-message">No hay órdenes para mostrar.</td></tr>';
   } else {
     ordenes.forEach(ord => {
       const meta = ord.cantidad_programada || 1;
@@ -2392,6 +2602,17 @@ function renderizarPantallaOrdenesGerencial(ordenes) {
         duracionTexto = `${diffD} d`;
       }
 
+      const statsCalidad = defectosPorOrden[ord.id] || { primeras: 0, defectos: 0 };
+      const defUds = statsCalidad.defectos;
+      const sumAuditadas = statsCalidad.primeras + statsCalidad.defectos;
+      const pctMerma = sumAuditadas > 0 ? ((defUds / sumAuditadas) * 100).toFixed(1) : "0.0";
+
+      const badgeMermaStyle = Number(pctMerma) > 5 
+        ? "background:#fef2f2; color:#dc2626; border:1px solid #fecaca;" 
+        : (Number(pctMerma) > 0 
+          ? "background:#fffbeb; color:#d97706; border:1px solid #fde68a;" 
+          : "background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;");
+
       tbody.insertAdjacentHTML("beforeend", `
         <tr>
           <td style="font-weight:700; color:var(--mod-ger-primary);">${escapeHtml(ord.numero_op)}</td>
@@ -2399,7 +2620,9 @@ function renderizarPantallaOrdenesGerencial(ordenes) {
           <td><span class="status-pill ${ord.estado}">${ord.estado.toUpperCase()}</span></td>
           <td>${duracionTexto}</td>
           <td>${meta.toLocaleString()}</td>
-          <td>${term.toLocaleString()}</td>
+          <td style="font-weight:600;">${term.toLocaleString()}</td>
+          <td style="font-weight:700; color:${defUds > 0 ? 'var(--danger)' : 'var(--text-muted)'};">${defUds.toLocaleString()}</td>
+          <td><span style="font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:9999px; ${badgeMermaStyle}">${pctMerma}%</span></td>
           <td>
             <div class="table-progress-cell">
               <div class="table-progress-bar">
@@ -2416,8 +2639,115 @@ function renderizarPantallaOrdenesGerencial(ordenes) {
   // Gráfica Días por Referencia (Barras Horizontales)
   renderChartDiasReferencia(ordenes);
 
+  // Gráfica Defectos por Orden (OP)
+  renderChartDefectosPorOrden(ordenes, defectosPorOrden);
+
   // Gráfica Distribución por Estado (Dona)
   renderChartEstadosOrdenes(ordenes);
+}
+
+function renderChartDefectosPorOrden(ordenes, defectosPorOrden) {
+  const canvas = document.getElementById("chart-ger-defectos-orden");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  if (appState.charts.defectosOrden) {
+    appState.charts.defectosOrden.destroy();
+  }
+
+  // Mapear órdenes con sus estadísticas de calidad
+  const datosOrdenes = ordenes.map(ord => {
+    const stats = defectosPorOrden[ord.id] || { primeras: 0, defectos: 0 };
+    const auditadas = stats.primeras + stats.defectos;
+    const tasa = auditadas > 0 ? ((stats.defectos / auditadas) * 100) : 0;
+    return {
+      op: ord.numero_op || `OP-${ord.id}`,
+      ref: ord.prendas?.referencia || "Sin ref",
+      defectos: stats.defectos,
+      tasa: Math.round(tasa * 10) / 10
+    };
+  });
+
+  // Ordenar por defectos descendente (las órdenes con mayor cantidad de defectos primero)
+  datosOrdenes.sort((a, b) => b.defectos - a.defectos);
+  const topOrdenes = datosOrdenes.slice(0, 8);
+
+  const labels = topOrdenes.map(d => d.op);
+  const dataDefectos = topOrdenes.map(d => d.defectos);
+  const dataTasa = topOrdenes.map(d => d.tasa);
+
+  const hayDefectos = dataDefectos.some(d => d > 0);
+
+  appState.charts.defectosOrden = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels.length ? labels : ["Sin OP"],
+      datasets: [
+        {
+          label: "Prendas Defectuosas (Uds)",
+          data: hayDefectos ? dataDefectos : (labels.length ? labels.map(() => 0) : [0]),
+          backgroundColor: "#ef4444",
+          hoverBackgroundColor: "#dc2626",
+          borderRadius: 4,
+          yAxisID: "y"
+        },
+        {
+          label: "% Merma / Defecto",
+          data: hayDefectos ? dataTasa : (labels.length ? labels.map(() => 0) : [0]),
+          type: "line",
+          borderColor: "#d97706",
+          borderWidth: 2,
+          pointRadius: 4,
+          fill: false,
+          yAxisID: "y1"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "top",
+          labels: { font: { size: 10, family: "Outfit" }, boxWidth: 10 }
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const idx = items[0]?.dataIndex;
+              if (idx !== undefined && topOrdenes[idx]) {
+                return `${topOrdenes[idx].op} - ${topOrdenes[idx].ref}`;
+              }
+              return items[0]?.label || "";
+            },
+            label: (ctx) => {
+              if (ctx.dataset.type === "line") {
+                return `Merma: ${ctx.raw}%`;
+              }
+              return `Defectos: ${ctx.raw} uds`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { precision: 0 },
+          title: { display: true, text: "Uds Defectuosas", font: { size: 10 } },
+          grid: { color: "#f1f5f9" }
+        },
+        y1: {
+          position: "right",
+          beginAtZero: true,
+          ticks: { callback: v => v + "%" },
+          grid: { display: false }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 10, family: "Outfit" } }
+        }
+      }
+    }
+  });
 }
 
 function renderChartDiasReferencia(ordenes) {
@@ -2547,6 +2877,8 @@ function exportarReporteGerencialExcel() {
     const prendasTotTexto = document.getElementById("kpi-ger-prendas-tot")?.textContent || "0";
     const opsActTexto = document.getElementById("kpi-ger-operarias-act")?.textContent || "0";
     const minPerdTexto = document.getElementById("kpi-ger-min-perdidos")?.textContent || "0";
+    const tasaDefTexto = document.getElementById("badge-ger-tasa-defectos")?.textContent?.replace("Tasa de Defectos:", "").trim() || "0.0%";
+    const totDefTexto = document.getElementById("badge-ger-total-defectos")?.textContent?.replace("Total Defectos:", "").trim() || "0 uds";
 
     const kpiData = [
       ["REPORTE EJECUTIVO GERENCIAL - RETOOS TEX"],
@@ -2557,7 +2889,9 @@ function exportarReporteGerencialExcel() {
       ["Minutos SAM Ganados", minSamTexto],
       ["Prendas Totales Confeccionadas", prendasTotTexto],
       ["Operarias Activas", opsActTexto],
-      ["Minutos Perdidos", minPerdTexto]
+      ["Minutos Perdidos", minPerdTexto],
+      ["Tasa Global de Defectos", tasaDefTexto],
+      ["Total Prendas No Conformes", totDefTexto]
     ];
 
     const wb = XLSX.utils.book_new();
@@ -2565,17 +2899,28 @@ function exportarReporteGerencialExcel() {
     XLSX.utils.book_append_sheet(wb, wsKpis, "KPIs_Generales");
 
     // Hoja de Órdenes
-    const ordenesFilas = [["Numero_OP", "Referencia", "Estado", "Meta", "Terminadas", "% Avance"]];
+    const ordenesFilas = [["Numero_OP", "Referencia", "Estado", "Meta", "Terminadas", "Defectos", "% Merma", "% Avance"]];
     appState.ordenes.forEach(o => {
       const meta = o.cantidad_programada || 0;
       const term = o.prendas_terminadas || 0;
       const pct = meta > 0 ? ((term / meta) * 100).toFixed(1) + "%" : "0%";
+      const defs = appState.registrosTerminadas
+        ? appState.registrosTerminadas.filter(t => t.orden_id === o.id).reduce((acc, t) => acc + Number(t.cantidad_defectos || 0), 0)
+        : 0;
+      const prims = appState.registrosTerminadas
+        ? appState.registrosTerminadas.filter(t => t.orden_id === o.id).reduce((acc, t) => acc + Number(t.cantidad_primeras || 0), 0)
+        : 0;
+      const sumAud = defs + prims;
+      const pctMerma = sumAud > 0 ? ((defs / sumAud) * 100).toFixed(1) + "%" : "0.0%";
+
       ordenesFilas.push([
         o.numero_op,
         o.prendas?.referencia || "Sin ref",
         o.estado,
         meta,
         term,
+        defs,
+        pctMerma,
         pct
       ]);
     });
