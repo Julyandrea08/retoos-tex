@@ -1293,6 +1293,76 @@ textarea {
 }
 
 /* ==============================================================================
+   ACORDEÓN Y DETALLE DE PRENDAS Y FICHAS SAM
+   ============================================================================== */
+.prenda-accordion-card {
+  background: #ffffff;
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.prenda-accordion-card:hover {
+  border-color: #10b981;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.06);
+}
+.prenda-accordion-card.open {
+  border-color: #059669;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.1);
+}
+.prenda-accordion-header {
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  background: #ffffff;
+  user-select: none;
+  gap: 12px;
+  flex-wrap: wrap;
+  transition: background 0.15s;
+}
+.prenda-accordion-header:hover {
+  background: #f8fafc;
+}
+.prenda-accordion-card.open .prenda-accordion-header {
+  background: #f0fdf4;
+  border-bottom: 1.5px solid #bbf7d0;
+}
+.prenda-accordion-chevron {
+  transition: transform 0.25s ease, color 0.2s;
+  color: var(--text-muted);
+}
+.prenda-accordion-card.open .prenda-accordion-chevron {
+  transform: rotate(180deg);
+  color: #059669;
+}
+.prenda-accordion-body {
+  display: none;
+  padding: 16px 18px;
+  background: #ffffff;
+}
+.prenda-accordion-card.open .prenda-accordion-body {
+  display: block;
+}
+.op-row-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  transition: background 0.15s;
+}
+.op-row-item:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* ==============================================================================
    15. MÓDULO DE ANALÍTICA GERENCIAL & BI (ESTILO LOOKER STUDIO)
    ============================================================================== */
 .ger-subnav {

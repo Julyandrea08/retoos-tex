@@ -1073,7 +1073,38 @@
 
         </div>
 
-        <h4 style="font-size:1rem; font-weight:700; margin-bottom:12px;">Fichas Técnicas Activas</h4>
+        <!-- Barra de Búsqueda Mágica y Exportación de Prendas -->
+        <div style="background:var(--bg-app); border:1.5px solid var(--border-color); border-radius:12px; padding:14px 18px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+            <h4 style="font-size:1rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px;">
+              <i data-lucide="shirt" style="width:18px;height:18px;color:#059669;"></i> Fichas Técnicas Activas
+              <span id="badge-total-prendas-admin" style="font-size:0.75rem; font-weight:600; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:9999px;">0 prendas</span>
+            </h4>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="exportarCatalogoCompletoExcel()" style="height:36px; font-weight:700; color:#059669; border-color:#a7f3d0; background:#ecfdf5;">
+                <i data-lucide="file-spreadsheet"></i> Exportar Todas las Prendas (Excel)
+              </button>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <!-- Buscador Mágico de Prendas -->
+            <div style="position:relative; flex:1; min-width:260px;">
+              <input type="text" id="admin-search-prendas" placeholder="🔍 Buscar por referencia, descripción u operación..." 
+                     oninput="filtrarListaAdminPrendas(this.value)" 
+                     style="height:38px; padding:0 14px; font-size:0.86rem; border-radius:8px; border:1px solid var(--border-color); width:100%; background:#fff;">
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="desplegarTodasLasPrendas(true)" style="height:38px; font-size:0.78rem;">
+                <i data-lucide="chevrons-down" style="width:14px;height:14px;"></i> Expandir Todas
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="desplegarTodasLasPrendas(false)" style="height:38px; font-size:0.78rem;">
+                <i data-lucide="chevrons-up" style="width:14px;height:14px;"></i> Colapsar
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div id="admin-prendas-list"></div>
       </div>
 
@@ -1162,22 +1193,34 @@
   </div>
 
   <!-- ============================================================== -->
-  <!-- MODAL: EDITAR SAM DE OPERACIÓN IN-SITU (Punto 8)               -->
+  <!-- MODAL: EDITAR OPERACIÓN Y SAM IN-SITU                          -->
   <!-- ============================================================== -->
   <div id="modal-edit-sam" class="modal-overlay">
     <div class="modal-card">
       <h3 style="font-size:1.15rem; font-weight:700; margin-bottom:8px;">
-        <i data-lucide="edit-3" style="color:var(--mod-adm-primary);"></i> Modificar SAM de Operación
+        <i data-lucide="edit-3" style="color:var(--mod-adm-primary);"></i> Modificar Operación & SAM
       </h3>
       <p id="edit-sam-desc" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;"></p>
       <input type="hidden" id="edit-sam-op-id">
-      <div class="form-group">
-        <label>Nuevo Valor SAM (Minutos estándar)</label>
-        <input type="number" id="edit-sam-valor" class="clean-number-input" step="0.001" min="0.001" required>
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label><i data-lucide="hash" style="width:14px;height:14px;display:inline;"></i> Código de Operación</label>
+        <input type="text" id="edit-sam-codigo" placeholder="Ej: OP-01">
       </div>
+
+      <div class="form-group" style="margin-bottom:12px;">
+        <label><i data-lucide="file-text" style="width:14px;height:14px;display:inline;"></i> Nombre de la Operación</label>
+        <input type="text" id="edit-sam-nombre" placeholder="Ej: Pegar Pretina" required>
+      </div>
+
+      <div class="form-group">
+        <label><i data-lucide="clock" style="width:14px;height:14px;display:inline;"></i> Valor SAM (Minutos estándar)</label>
+        <input type="number" id="edit-sam-valor" class="clean-number-input" step="0.001" min="0.001" placeholder="Ej: 1.450" required>
+      </div>
+
       <div style="display:flex; gap:10px; margin-top:20px;">
-        <button class="btn btn-secondary" style="flex:1;" onclick="cerrarModalEditSAM()">Cancelar</button>
-        <button class="btn btn-primary" style="flex:1;" onclick="guardarEdicionSAM()">Guardar Cambios</button>
+        <button type="button" class="btn btn-secondary" style="flex:1;" onclick="cerrarModalEditSAM()">Cancelar</button>
+        <button type="button" class="btn btn-primary" style="flex:1;" onclick="guardarEdicionSAM()">Guardar Cambios</button>
       </div>
     </div>
   </div>

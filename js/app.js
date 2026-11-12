@@ -1642,40 +1642,153 @@ async function toggleEstadoOperaria(id, nuevoEstado) {
   }
 }
 
-// 7.3 Prendas & Fichas SAM (Punto 8: Modificar SAM y Auto-código)
-function renderAdminPrendas() {
+// Estado para recordar qué prendas están desplegadas en el acordeón
+if (!appState.prendasAbiertas) {
+  appState.prendasAbiertas = new Set();
+}
+
+// 7.3 Prendas & Fichas SAM (Listado Desplegable con Acordeón, Buscador Mágico y Exportación Específica)
+function renderAdminPrendas(filtroTexto = "") {
   const list = document.getElementById("admin-prendas-list");
+  if (!list) return;
   list.innerHTML = "";
 
-  appState.prendas.forEach(p => {
+  const q = (typeof filtroTexto === "string" ? filtroTexto : (document.getElementById("admin-search-prendas")?.value || "")).trim().toLowerCase();
+
+  let prendas = [...appState.prendas];
+
+  if (q) {
+    prendas = prendas.filter(p => {
+      const matchRef = p.referencia && p.referencia.toLowerCase().includes(q);
+      const matchDesc = p.descripcion && p.descripcion.toLowerCase().includes(q);
+      const ops = appState.operaciones.filter(o => o.prenda_id === p.id);
+      const matchOp = ops.some(o => 
+        (o.codigo_operacion && o.codigo_operacion.toLowerCase().includes(q)) ||
+        (o.nombre_operacion && o.nombre_operacion.toLowerCase().includes(q))
+      );
+      return matchRef || matchDesc || matchOp;
+    });
+  }
+
+  const badgeTot = document.getElementById("badge-total-prendas-admin");
+  if (badgeTot) {
+    badgeTot.textContent = `${prendas.length} de ${appState.prendas.length} prendas`;
+  }
+
+  if (prendas.length === 0) {
+    list.innerHTML = '<p class="empty-message">No se encontraron prendas o fichas técnicas que coincidan con la búsqueda.</p>';
+    return;
+  }
+
+  // Si hay búsqueda activa con pocas coincidencias (hasta 3), abrir automáticamente
+  const autoOpen = q.length > 1 && prendas.length <= 3;
+
+  prendas.forEach(p => {
     const opsDePrenda = appState.operaciones.filter(o => o.prenda_id === p.id);
     const samTotal = opsDePrenda.reduce((sum, o) => sum + Number(o.sam || 0), 0);
+    const isOpen = autoOpen || appState.prendasAbiertas.has(p.id);
 
     list.insertAdjacentHTML("beforeend", `
-      <div class="data-list-item" style="flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom:16px;">
-        <div style="display: flex; justify-content: space-between; width: 100%;">
-          <h5><i data-lucide="shirt" style="width:18px;height:18px;display:inline;"></i> <strong>${escapeHtml(p.referencia)}</strong></h5>
-          <strong style="color: var(--mod-adm-primary); font-size:1rem;">${samTotal.toFixed(3)} min SAM Total</strong>
-        </div>
-        <p style="font-size:0.82rem; color:var(--text-muted);">${escapeHtml(p.descripcion || 'Sin descripción')} &bull; ${opsDePrenda.length} operaciones creadas</p>
-        
-        <div style="width: 100%; font-size: 0.82rem; background: #fff; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--border-color);">
-          ${opsDePrenda.map(o => `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding: 6px 0; border-bottom:1px solid #f1f5f9;">
-              <div>
-                <strong style="color:var(--mod-adm-primary);">[${o.codigo_operacion}]</strong> ${escapeHtml(o.nombre_operacion)} 
-                <span style="color:var(--text-muted); margin-left:6px;">(${o.sam} min)</span>
-              </div>
-              <button class="btn btn-secondary btn-sm" style="height:28px; font-size:0.75rem; padding:0 8px;" onclick="abrirModalEditSAM('${o.id}', '${escapeHtml(o.nombre_operacion)}', ${o.sam})">
-                <i data-lucide="edit-2"></i> Editar SAM
-              </button>
+      <div class="prenda-accordion-card ${isOpen ? 'open' : ''}" id="prenda-card-${p.id}">
+        <!-- Cabecera del Acordeón (Clic para Desplegar Ficha) -->
+        <div class="prenda-accordion-header" onclick="togglePrendaAccordion('${p.id}')">
+          <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0; flex-wrap:wrap;">
+            <span class="admin-strip-badge" style="font-size:0.92rem; color:#059669; background:#ecfdf5; padding:3px 10px; border-radius:6px; border:1px solid #a7f3d0;">
+              [${escapeHtml(p.referencia)}]
+            </span>
+            <span style="font-weight:700; color:var(--text-main); font-size:0.92rem;">
+              ${escapeHtml(p.descripcion || 'Sin descripción')}
+            </span>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <span style="font-size:0.75rem; font-weight:600; background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:9999px;">
+                ${opsDePrenda.length} operaciones
+              </span>
+              <span style="font-size:0.78rem; font-weight:700; background:#eff6ff; color:#1d4ed8; padding:2px 8px; border-radius:9999px;">
+                ${samTotal.toFixed(3)} min SAM Total
+              </span>
             </div>
-          `).join('') || '<em style="color:var(--text-muted);">No tiene operaciones en su ruta aún</em>'}
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;" onclick="event.stopPropagation();">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="exportarPrendaIndividualExcel('${p.id}')" title="Descargar Ficha Técnica de esta prenda en Excel" style="height:32px; font-size:0.78rem; font-weight:600; color:#059669; border-color:#a7f3d0; background:#f0fdf4;">
+              <i data-lucide="file-spreadsheet" style="width:14px;height:14px;"></i> Exportar Ficha
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="togglePrendaAccordion('${p.id}')" style="height:32px; width:34px; padding:0; display:flex; align-items:center; justify-content:center;">
+              <i data-lucide="chevron-down" class="prenda-accordion-chevron" style="width:16px;height:16px;"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Cuerpo del Acordeón (Ficha Técnica y Operaciones Desplegables) -->
+        <div class="prenda-accordion-body">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px; background:#f8fafc; padding:8px 14px; border-radius:8px; border:1px solid #e2e8f0;">
+            <div style="font-size:0.82rem; color:var(--text-muted);">
+              Ruta Operacional & Balanceo de Costura para: <strong style="color:var(--text-main);">${escapeHtml(p.referencia)}</strong>
+            </div>
+            <div style="font-size:0.82rem;">
+              SAM Total: <strong style="color:#059669; font-size:0.95rem;">${samTotal.toFixed(3)} min</strong>
+            </div>
+          </div>
+
+          <div class="prenda-ops-container">
+            ${opsDePrenda.length > 0 ? opsDePrenda.map((o, idx) => `
+              <div class="op-row-item">
+                <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+                  <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted); width:20px;">#${idx + 1}</span>
+                  <span style="font-weight:700; color:#059669; background:#ecfdf5; padding:2px 6px; border-radius:4px; font-size:0.8rem;">[${escapeHtml(o.codigo_operacion)}]</span>
+                  <span style="font-weight:600; color:var(--text-main); font-size:0.86rem;">${escapeHtml(o.nombre_operacion)}</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <span style="font-weight:700; font-size:0.86rem; color:#1e293b;">${Number(o.sam || 0).toFixed(3)} min</span>
+                  <button class="btn btn-secondary btn-sm" style="height:30px; font-size:0.78rem; padding:0 10px; font-weight:600;" 
+                          onclick="abrirModalEditSAM('${o.id}', '${escapeHtml(o.codigo_operacion)}', '${escapeHtml(o.nombre_operacion)}', ${o.sam}, '${escapeHtml(p.referencia)}')"
+                          title="Editar nombre de operación, código y tiempo SAM">
+                    <i data-lucide="edit-2" style="width:13px;height:13px;"></i> Editar Operación / SAM
+                  </button>
+                </div>
+              </div>
+            `).join('') : `
+              <div style="text-align:center; padding:16px; color:var(--text-muted); font-size:0.84rem; background:#f8fafc; border-radius:8px;">
+                Esta prenda aún no tiene operaciones registradas en su ficha técnica.
+              </div>
+            `}
+          </div>
         </div>
       </div>
     `);
   });
+
   lucide.createIcons();
+}
+
+function filtrarListaAdminPrendas(val) {
+  renderAdminPrendas(val);
+}
+
+function togglePrendaAccordion(prendaId) {
+  const card = document.getElementById(`prenda-card-${prendaId}`);
+  if (!card) return;
+
+  if (!appState.prendasAbiertas) appState.prendasAbiertas = new Set();
+
+  if (card.classList.contains("open")) {
+    card.classList.remove("open");
+    appState.prendasAbiertas.delete(prendaId);
+  } else {
+    card.classList.add("open");
+    appState.prendasAbiertas.add(prendaId);
+  }
+}
+
+function desplegarTodasLasPrendas(abrir = true) {
+  if (!appState.prendasAbiertas) appState.prendasAbiertas = new Set();
+  
+  if (abrir) {
+    appState.prendas.forEach(p => appState.prendasAbiertas.add(p.id));
+  } else {
+    appState.prendasAbiertas.clear();
+  }
+  renderAdminPrendas();
 }
 
 async function crearNuevaPrenda(event) {
@@ -1726,7 +1839,7 @@ async function agregarOperacionAPrenda(event) {
     return;
   }
 
-  // Punto 8: Si no escribió código, auto-generar OP-01, OP-02...
+  // Si no escribió código, auto-generar OP-01, OP-02...
   if (!codOp) {
     const opsActualesPrenda = appState.operaciones.filter(o => o.prenda_id === prendaId);
     codOp = `OP-${String(opsActualesPrenda.length + 1).padStart(2, '0')}`;
@@ -1758,6 +1871,10 @@ async function agregarOperacionAPrenda(event) {
     const prendaObj = appState.prendas.find(p => p.id === prendaId);
     if (prendaObj) prendaObj.sam_total = nuevoSamTotal;
 
+    // Abrir automáticamente la prenda que recibió la operación
+    if (!appState.prendasAbiertas) appState.prendasAbiertas = new Set();
+    appState.prendasAbiertas.add(prendaId);
+
     renderAdminPrendas();
     document.getElementById("admin-operacion-codigo").value = "";
     document.getElementById("admin-operacion-nombre").value = "";
@@ -1770,11 +1887,17 @@ async function agregarOperacionAPrenda(event) {
   }
 }
 
-// Punto 8: Modal para Editar SAM in-situ
-function abrirModalEditSAM(opId, opNombre, samActual) {
+// Modal para Editar Nombre de Operación, Código y SAM in-situ
+function abrirModalEditSAM(opId, opCodigo, opNombre, samActual, prendaRef = "") {
   document.getElementById("edit-sam-op-id").value = opId;
-  document.getElementById("edit-sam-desc").textContent = `Operación: ${opNombre}`;
-  document.getElementById("edit-sam-valor").value = samActual;
+  document.getElementById("edit-sam-codigo").value = opCodigo || "";
+  document.getElementById("edit-sam-nombre").value = opNombre || "";
+  document.getElementById("edit-sam-valor").value = samActual || 0;
+  
+  const descEl = document.getElementById("edit-sam-desc");
+  if (descEl) {
+    descEl.textContent = prendaRef ? `Ficha Técnica: Prenda ${prendaRef}` : `Operación: ${opNombre}`;
+  }
   document.getElementById("modal-edit-sam").classList.add("open");
 }
 
@@ -1784,25 +1907,43 @@ function cerrarModalEditSAM() {
 
 async function guardarEdicionSAM() {
   const opId = document.getElementById("edit-sam-op-id").value;
+  const nuevoCodigo = document.getElementById("edit-sam-codigo").value.trim();
+  const nuevoNombre = document.getElementById("edit-sam-nombre").value.trim();
   const nuevoSAM = parseFloat(document.getElementById("edit-sam-valor").value);
+
+  if (!nuevoNombre) {
+    showToast("El nombre de la operación es obligatorio.", "error");
+    return;
+  }
 
   if (isNaN(nuevoSAM) || nuevoSAM <= 0) {
     showToast("Ingrese un valor de SAM válido mayor a 0.", "error");
     return;
   }
 
-  showLoader(true, "Actualizando SAM...");
+  showLoader(true, "Actualizando operación y SAM...");
   try {
+    const updatePayload = {
+      nombre_operacion: nuevoNombre,
+      sam: nuevoSAM
+    };
+    if (nuevoCodigo) {
+      updatePayload.codigo_operacion = nuevoCodigo;
+    }
+
     const { error } = await getDb()
       .from("operaciones_prenda")
-      .update({ sam: nuevoSAM })
+      .update(updatePayload)
       .eq("id", opId);
 
     if (error) throw error;
 
     const op = appState.operaciones.find(o => o.id === opId);
     if (op) {
+      op.nombre_operacion = nuevoNombre;
+      if (nuevoCodigo) op.codigo_operacion = nuevoCodigo;
       op.sam = nuevoSAM;
+
       // Recalcular SAM total de esa prenda
       const prendaId = op.prenda_id;
       const opsPrenda = appState.operaciones.filter(o => o.prenda_id === prendaId);
@@ -1813,38 +1954,96 @@ async function guardarEdicionSAM() {
       if (pr) pr.sam_total = totalSam;
     }
 
+    configurarTodosLosBuscadoresMagicos();
     cerrarModalEditSAM();
     renderAdminPrendas();
-    showToast("✓ SAM actualizado correctamente", "success");
+    showToast("✓ Operación y SAM actualizados correctamente", "success");
   } catch (err) {
-    showToast("Error al actualizar SAM: " + err.message, "error");
+    console.error("Error al actualizar operación:", err);
+    showToast("Error al actualizar: " + err.message, "error");
   } finally {
     showLoader(false);
   }
 }
 
-// Punto 8: Exportar Catálogo Completo de Prendas y SAMs a Excel
+// Exportar Ficha Técnica de una Prenda Específica a Excel
+function exportarPrendaIndividualExcel(prendaId) {
+  const p = appState.prendas.find(x => x.id === prendaId);
+  if (!p) {
+    showToast("Prenda no encontrada.", "error");
+    return;
+  }
+  const ops = appState.operaciones.filter(o => o.prenda_id === p.id);
+  const samTotal = ops.reduce((sum, o) => sum + Number(o.sam || 0), 0);
+
+  const filas = [
+    ["RETOOS TEX - FICHA TÉCNICA DE PRODUCCIÓN & BALANCEO SAM"],
+    ["Empresa:", appState.empresa?.nombre || "RetoOS Tex"],
+    ["Referencia:", p.referencia],
+    ["Descripción:", p.descripcion || "Sin descripción"],
+    ["SAM Total Confección:", `${samTotal.toFixed(3)} minutos`],
+    ["Total de Operaciones:", ops.length],
+    ["Fecha de Generación:", new Date().toLocaleString()],
+    [],
+    ["#", "Código Operación", "Nombre de la Operación", "SAM (Minutos)", "% Participación en Prenda"]
+  ];
+
+  ops.forEach((op, idx) => {
+    const partPct = samTotal > 0 ? ((Number(op.sam || 0) / samTotal) * 100).toFixed(1) + "%" : "0.0%";
+    filas.push([
+      idx + 1,
+      op.codigo_operacion || `OP-${idx + 1}`,
+      op.nombre_operacion || "",
+      Number(op.sam || 0),
+      partPct
+    ]);
+  });
+
+  filas.push([]);
+  filas.push(["TOTAL SAM", "", "", Number(samTotal.toFixed(3)), "100.0%"]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(filas);
+  XLSX.utils.book_append_sheet(wb, ws, "Ficha_Tecnica");
+
+  const cleanRef = (p.referencia || "Prenda").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const hoyStr = new Date().toISOString().split("T")[0];
+  XLSX.writeFile(wb, `Ficha_Tecnica_${cleanRef}_${hoyStr}.xlsx`);
+  showToast(`✓ Ficha técnica de ${p.referencia} exportada a Excel`, "success");
+}
+
+// Exportar Catálogo Completo de Todas las Prendas y SAMs a Excel
 function exportarCatalogoCompletoExcel() {
   if (appState.prendas.length === 0) {
     showToast("No hay prendas en el catálogo para exportar.", "error");
     return;
   }
 
-  const filas = [["Referencia", "Descripcion_Prenda", "SAM_Total_Prenda", "Codigo_Operacion", "Nombre_Operacion", "SAM_Operacion"]];
+  const filas = [
+    ["RETOOS TEX - CATÁLOGO MAESTRO DE PRENDAS Y FICHAS SAM"],
+    ["Empresa:", appState.empresa?.nombre || "RetoOS Tex"],
+    ["Fecha de Generación:", new Date().toLocaleString()],
+    ["Total Prendas:", appState.prendas.length],
+    ["Total Operaciones:", appState.operaciones.length],
+    [],
+    ["Referencia", "Descripción de Prenda", "SAM Total Prenda (min)", "Código Operación", "Nombre de la Operación", "SAM Operación (min)"]
+  ];
 
   appState.prendas.forEach(p => {
     const ops = appState.operaciones.filter(o => o.prenda_id === p.id);
+    const samTotal = ops.reduce((sum, o) => sum + Number(o.sam || 0), 0);
+
     if (ops.length === 0) {
-      filas.push([p.referencia, p.descripcion || "", p.sam_total, "", "Sin operaciones", ""]);
+      filas.push([p.referencia, p.descripcion || "", Number(samTotal.toFixed(3)), "", "Sin operaciones registradas", ""]);
     } else {
       ops.forEach(op => {
         filas.push([
           p.referencia,
           p.descripcion || "",
-          p.sam_total,
+          Number(samTotal.toFixed(3)),
           op.codigo_operacion,
           op.nombre_operacion,
-          op.sam
+          Number(op.sam || 0)
         ]);
       });
     }
@@ -1853,8 +2052,10 @@ function exportarCatalogoCompletoExcel() {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(filas);
   XLSX.utils.book_append_sheet(wb, ws, "Catalogo_Prendas_SAM");
-  XLSX.writeFile(wb, `Catalogo_Prendas_SAM_${new Date().toISOString().split("T")[0]}.xlsx`);
-  showToast("Catálogo completo descargado en Excel.", "success");
+
+  const hoyStr = new Date().toISOString().split("T")[0];
+  XLSX.writeFile(wb, `Catalogo_Maestro_Prendas_SAM_RetoOS_${hoyStr}.xlsx`);
+  showToast("✓ Catálogo maestro completo descargado en Excel", "success");
 }
 
 // Descargar Plantilla Excel de Fichas
